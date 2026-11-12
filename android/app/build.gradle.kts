@@ -10,8 +10,8 @@ android {
 
     defaultConfig {
         applicationId = "com.gorienajibo.app"
-        minSdk = 26
-        targetSdk = 35
+        minSdk = 24
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
 
@@ -37,8 +37,16 @@ android {
             signingConfig = signingConfigs.getByName("debug") // Replace with production keystore in CI/CD
         }
         debug {
-            applicationIdSuffix = ".debug"
             isDebuggable = true
+        }
+    }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 
