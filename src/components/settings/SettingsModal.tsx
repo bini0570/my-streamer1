@@ -177,14 +177,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* 4. 100% Opaque 3D Shaded Mesh Toggle */}
+          {/* 4. 100% Opaque 3D Shaded Mesh Toggle & Transparency Slider */}
           <div className="space-y-3">
             <label className="text-xs font-semibold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5" />
               <span>100% Opaque 3D Shaded Mesh</span>
             </label>
 
-            <div className="bg-slate-950/50 border border-white/10 rounded-xl p-3.5 space-y-2">
+            <div className="bg-slate-950/50 border border-white/10 rounded-xl p-3.5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="pr-4">
                   <span className="font-medium text-slate-200">3D Shaded Mesh Topology</span>
@@ -204,6 +204,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 >
                   {settings.show3DShadedMesh ? 'በርቷል (ON)' : 'ጠፍቷል (OFF)'}
                 </button>
+              </div>
+
+              {/* Mesh Shade Transparency / Opacity Slider */}
+              <div className="pt-3 border-t border-white/5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-medium text-slate-200">የጥላው ግልጸኝነት (Mesh Shade Opacity)</span>
+                    <p className="text-[11px] text-slate-400">Increase or decrease mesh shade transparency (20% – 100%)</p>
+                  </div>
+                  <span className="font-mono text-xs font-bold text-cyan-300 bg-cyan-950/80 px-2.5 py-0.5 rounded border border-cyan-500/30">
+                    {Math.round((settings.meshShadeOpacity ?? 1.0) * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.20"
+                  max="1.00"
+                  step="0.02"
+                  value={settings.meshShadeOpacity ?? 1.0}
+                  onChange={(e) =>
+                    onUpdateSettings({ meshShadeOpacity: parseFloat(e.target.value) })
+                  }
+                  className="w-full h-1.5 bg-slate-800 accent-cyan-400 rounded-lg cursor-pointer mt-1"
+                />
+                <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                  <span>20% (Ghost / Hologram)</span>
+                  <span>60% (Translucent)</span>
+                  <span>100% (Solid Opaque)</span>
+                </div>
               </div>
             </div>
           </div>

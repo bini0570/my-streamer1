@@ -52,7 +52,8 @@ export interface AppSettings {
   cameraResolution: '720p' | '1080p' | '480p';
   facingMode: 'user' | 'environment';
   maskFitScale: number; // 0.85 to 1.35 (Mask & Mesh Fit)
-  show3DShadedMesh: boolean; // 100% Opaque 3D Shaded Mesh
+  show3DShadedMesh: boolean; // 3D Shaded Mesh
+  meshShadeOpacity: number; // 0.20 to 1.00 (Mesh Shade Transparency / Opacity)
   filterSensitivity?: number; // legacy optional
   mouthTrackingSensitivity?: number; // legacy optional
   showFaceMeshDebug?: boolean; // legacy optional

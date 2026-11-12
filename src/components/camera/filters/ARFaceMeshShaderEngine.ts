@@ -71,6 +71,22 @@ export class ARFaceMeshShaderEngine {
     this.maskFitScale = Math.max(0.85, Math.min(1.35, scale));
   }
 
+  // Mesh Shade Transparency / Opacity (0.15 to 1.0)
+  private meshShadeOpacity = 1.0;
+
+  public setMeshShadeOpacity(opacity: number): void {
+    this.meshShadeOpacity = Math.max(0.15, Math.min(1.0, opacity));
+    if (this.sculptedMeshMaterial && this.sculptedMeshMaterial.uniforms.uOpacity) {
+      this.sculptedMeshMaterial.uniforms.uOpacity.value = this.meshShadeOpacity;
+    }
+    if (this.faceMeshMaterial && this.faceMeshMaterial.uniforms.uOpacity) {
+      this.faceMeshMaterial.uniforms.uOpacity.value = this.meshShadeOpacity;
+    }
+    if (this.wireframeOverlayMaterial) {
+      this.wireframeOverlayMaterial.opacity = Math.max(0.25, this.meshShadeOpacity);
+    }
+  }
+
   // Scanning Animation State
   private isScanning = false;
   private scanProgress = 0.0;
@@ -229,6 +245,7 @@ export class ARFaceMeshShaderEngine {
     `;
 
     const sculptedFragmentShader = `
+      uniform float uOpacity;
       varying vec3 vNormal;
       varying vec3 vViewPosition;
       void main() {
@@ -245,17 +262,21 @@ export class ARFaceMeshShaderEngine {
         vec3 baseColor = vec3(0.24, 0.28, 0.36);
         vec3 litColor = baseColor * (0.35 + diffKey * 0.7 + diffFill) + vec3(0.25, 0.55, 0.85) * rim;
 
-        // 100% OPACITY - completely conceals real skin underneath
-        gl_FragColor = vec4(litColor, 1.0);
+        // Adjustable shade transparency / opacity
+        gl_FragColor = vec4(litColor, uOpacity);
       }
     `;
 
     this.sculptedMeshMaterial = new THREE.ShaderMaterial({
       vertexShader: sculptedVertexShader,
       fragmentShader: sculptedFragmentShader,
+      uniforms: {
+        uOpacity: { value: this.meshShadeOpacity },
+      },
       side: THREE.DoubleSide,
       depthTest: true,
       depthWrite: true,
+      transparent: true,
       polygonOffset: true,
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
@@ -270,8 +291,8 @@ export class ARFaceMeshShaderEngine {
     this.wireframeOverlayMaterial = new THREE.MeshBasicMaterial({
       color: 0x38bdf8, // Crisp cyan 3D wireframe topology
       wireframe: true,
-      transparent: false,
-      opacity: 1.0,
+      transparent: true,
+      opacity: Math.max(0.25, this.meshShadeOpacity),
       depthTest: true,
       depthWrite: false,
     });
@@ -343,6 +364,7 @@ export class ARFaceMeshShaderEngine {
       // Biometric Scanning & Sketch Animation
       uniform float uScanProgress;
       uniform float uIsScanning;
+      uniform float uOpacity;
 
       varying vec2 vUv;
       varying vec3 vNormal;
@@ -710,9 +732,9 @@ export class ARFaceMeshShaderEngine {
           emission += vec3(0.2, 0.8, 1.0) * (1.0 - revealed) * 0.6;
         }
 
-        // Final PBR Lighting Synthesis (100% OPAQUE, alpha = 1.0)
+        // Final PBR Lighting Synthesis with adjustable transparency
         vec3 finalColor = baseColor * diff + vec3(1.0) * spec * metalness + emission + vec3(0.7, 0.4, 0.9) * fresnel * 0.35;
-        gl_FragColor = vec4(finalColor, 1.0);
+        gl_FragColor = vec4(finalColor, uOpacity);
       }
     `;
 
@@ -736,10 +758,12 @@ export class ARFaceMeshShaderEngine {
         uJawBase: { value: new THREE.Vector2(0.5, 0.22) },
         uScanProgress: { value: this.scanProgress },
         uIsScanning: { value: this.isScanning ? 1.0 : 0.0 },
+        uOpacity: { value: this.meshShadeOpacity },
       },
       side: THREE.DoubleSide,
       depthTest: true,
       depthWrite: true,
+      transparent: true,
       polygonOffset: true,
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
@@ -960,48 +984,66 @@ export class ARFaceMeshShaderEngine {
     const canvasH = this.logicalHeight || 480;
     const worldUnitsPerPixel = planeHeightAtDistance / canvasH;
 
-    const targetWorldX = (tracking.x - 0.5) * planeWidthAtDistance;
-    const targetWorldY = -(tracking.y - 0.5) * planeHeightAtDistance;
-
-    this.faceMeshGroup.position.set(targetWorldX, targetWorldY, 0);
+    // Anchor group at origin so vertices map 1:1 with camera screen coordinates
+    this.faceMeshGroup.position.set(0, 0, 0);
     this.faceMeshGroup.rotation.set(0, 0, 0);
     this.faceMeshGroup.scale.set(1, 1, 1);
 
-    // 2. 3D Accessories (horns, ears, hair locks) follow head pose
-    const orientationMultiplier = this.flipVertical ? -1 : 1;
-    this.accessoryGroup.rotation.y = tracking.rotationY * 1.15;
-    this.accessoryGroup.rotation.x = -tracking.rotationX * 1.15 * orientationMultiplier;
-    this.accessoryGroup.rotation.z = -tracking.rotationZ * orientationMultiplier;
-
-    const fitScale = this.maskFitScale; // 0.85 to 1.35
-    const accessoryScale = Math.max(0.4, Math.min(2.2, (tracking.facePixelHeight * worldUnitsPerPixel / 2.2) * fitScale));
-    this.accessoryGroup.scale.set(accessoryScale, accessoryScale * orientationMultiplier, accessoryScale);
-
-    // 3. Real-time 3D Vertex Deformation from 468 MediaPipe Landmarks + Upper Neck Rings
     const positions = this.faceMeshGeometry.attributes.position.array as Float32Array;
     const uvs = this.faceMeshGeometry.attributes.uv.array as Float32Array;
 
     const landmarks = tracking.screenLandmarks;
 
     if (landmarks && landmarks.length >= 468) {
-      const centerPt = landmarks[168] || { x: tracking.x * canvasW, y: tracking.y * canvasH };
-      const centerX = centerPt.x;
-      const centerY = centerPt.y;
+      const leftCheek = landmarks[234] || { x: canvasW * 0.3, y: canvasH * 0.5 };
+      const rightCheek = landmarks[454] || { x: canvasW * 0.7, y: canvasH * 0.5 };
+      const forehead = landmarks[10] || { x: canvasW * 0.5, y: canvasH * 0.25 };
+      const chin = landmarks[152] || { x: canvasW * 0.5, y: canvasH * 0.75 };
 
-      const scaleNormX = (tracking.facePixelWidth || 180) * 0.5;
-      const scaleNormY = (tracking.facePixelHeight || 220) * 0.5;
-      const vSign = orientationMultiplier;
+      // True geometric face center on screen
+      const faceCenterX = (leftCheek.x + rightCheek.x) * 0.5;
+      const faceCenterY = (forehead.y + chin.y) * 0.5;
 
-      // 3a. Deform 468 Face Vertices directly mapped to world units
+      const facePixelWidth = Math.hypot(rightCheek.x - leftCheek.x, rightCheek.y - leftCheek.y) || 180;
+      const facePixelHeight = Math.hypot(chin.x - forehead.x, chin.y - forehead.y) || 220;
+
+      // Forehead lift: extends upper cranial vertices upward so the mesh completely covers forehead and hairline
+      const foreheadLift = facePixelHeight * 0.14; // 14% face height lift upward
+
+      const fitScale = this.maskFitScale; // 0.85 to 1.35
+      const vSign = this.flipVertical ? -1 : 1;
+      const orientationMultiplier = vSign;
+
+      // 2. 3D Accessories (horns, bat ears, feline ears, hair locks) attached at top of head
+      const topForeheadY = faceCenterY + (forehead.y - faceCenterY) * fitScale - foreheadLift * 1.15;
+      const accWorldX = (faceCenterX / canvasW - 0.5) * planeWidthAtDistance;
+      const accWorldY = -vSign * (topForeheadY / canvasH - 0.5) * planeHeightAtDistance;
+
+      this.accessoryGroup.position.set(accWorldX, accWorldY, 0.05);
+      this.accessoryGroup.rotation.y = tracking.rotationY * 1.15;
+      this.accessoryGroup.rotation.x = -tracking.rotationX * 1.15 * orientationMultiplier;
+      this.accessoryGroup.rotation.z = -tracking.rotationZ * orientationMultiplier;
+
+      const accessoryScale = Math.max(0.4, Math.min(2.2, (facePixelHeight * worldUnitsPerPixel / 2.2) * fitScale));
+      this.accessoryGroup.scale.set(accessoryScale, accessoryScale * orientationMultiplier, accessoryScale);
+
+      // 3a. Deform 468 Face Vertices with 1:1 screen projection and forehead concealment
       for (let i = 0; i < 468; i++) {
         const pt = landmarks[i];
         if (!pt) continue;
 
-        const relPixelX = (pt.x - centerX);
-        const relPixelY = (pt.y - centerY);
+        // Scale relative to true face center
+        let screenX = faceCenterX + (pt.x - faceCenterX) * fitScale;
+        let screenY = faceCenterY + (pt.y - faceCenterY) * fitScale;
 
-        const localX = relPixelX * worldUnitsPerPixel * 1.05 * fitScale;
-        let localY = -relPixelY * worldUnitsPerPixel * 1.05 * vSign * fitScale;
+        // Smoothly lift forehead and upper cranial region upward to fully conceal real forehead and hairline
+        if (pt.y < faceCenterY) {
+          const upperFactor = Math.min(1.0, Math.max(0.0, (faceCenterY - pt.y) / (facePixelHeight * 0.48)));
+          screenY -= foreheadLift * Math.pow(upperFactor, 1.15);
+        }
+
+        const localX = (screenX / canvasW - 0.5) * planeWidthAtDistance;
+        let localY = -vSign * (screenY / canvasH - 0.5) * planeHeightAtDistance;
         let localZ = (pt.z !== undefined ? -pt.z * worldUnitsPerPixel * 0.9 * fitScale : 0);
 
         // Anatomical depth enhancement
@@ -1011,7 +1053,7 @@ export class ARFaceMeshShaderEngine {
 
         // Mouth jaw opening deformation
         if (i >= 13 && i <= 18) {
-          localY -= vSign * tracking.mouthOpenness * 0.18 * mouthSensitivity;
+          localY -= vSign * tracking.mouthOpenness * 0.20 * mouthSensitivity;
         }
 
         positions[i * 3 + 0] = localX;
@@ -1019,8 +1061,8 @@ export class ARFaceMeshShaderEngine {
         positions[i * 3 + 2] = localZ;
 
         // Normalized UV coordinates
-        const normUvX = relPixelX / Math.max(1, scaleNormX);
-        const normUvY = -relPixelY / Math.max(1, scaleNormY) * vSign;
+        const normUvX = (pt.x - faceCenterX) / Math.max(1, facePixelWidth * 0.5);
+        const normUvY = -vSign * (pt.y - faceCenterY) / Math.max(1, facePixelHeight * 0.5);
         uvs[i * 2 + 0] = Math.max(0, Math.min(1, 0.5 + normUvX * 0.45));
         uvs[i * 2 + 1] = Math.max(0, Math.min(1, 0.48 + normUvY * 0.42));
       }
@@ -1038,20 +1080,20 @@ export class ARFaceMeshShaderEngine {
 
         // Ring 1: Upper Neck / Throat Level
         const idx1 = ring1Offset + k;
-        positions[idx1 * 3 + 0] = jawX * 0.94;
-        positions[idx1 * 3 + 1] = jawY - vSign * 0.32;
-        positions[idx1 * 3 + 2] = jawZ - 0.15;
+        positions[idx1 * 3 + 0] = jawX * 0.95;
+        positions[idx1 * 3 + 1] = jawY - vSign * (facePixelHeight * worldUnitsPerPixel * 0.25);
+        positions[idx1 * 3 + 2] = jawZ - 0.12;
 
-        uvs[idx1 * 2 + 0] = Math.max(0, Math.min(1, 0.5 + (jawX / Math.max(0.1, scaleNormX * worldUnitsPerPixel)) * 0.42));
+        uvs[idx1 * 2 + 0] = Math.max(0, Math.min(1, 0.5 + (jawX / Math.max(0.1, facePixelWidth * 0.5 * worldUnitsPerPixel)) * 0.42));
         uvs[idx1 * 2 + 1] = 0.14;
 
         // Ring 2: Lower Neck / Collar Level
         const idx2 = ring2Offset + k;
         positions[idx2 * 3 + 0] = jawX * 1.15;
-        positions[idx2 * 3 + 1] = jawY - vSign * 0.65;
-        positions[idx2 * 3 + 2] = jawZ - 0.10;
+        positions[idx2 * 3 + 1] = jawY - vSign * (facePixelHeight * worldUnitsPerPixel * 0.52);
+        positions[idx2 * 3 + 2] = jawZ - 0.08;
 
-        uvs[idx2 * 2 + 0] = Math.max(0, Math.min(1, 0.5 + (jawX / Math.max(0.1, scaleNormX * worldUnitsPerPixel)) * 0.50));
+        uvs[idx2 * 2 + 0] = Math.max(0, Math.min(1, 0.5 + (jawX / Math.max(0.1, facePixelWidth * 0.5 * worldUnitsPerPixel)) * 0.50));
         uvs[idx2 * 2 + 1] = 0.02;
       }
 
@@ -1061,15 +1103,15 @@ export class ARFaceMeshShaderEngine {
 
       // 4c. Update Anatomical Feature Uniforms so character mask fits the user's face perfectly!
       if (this.faceMeshMaterial) {
-        const lEyePt = landmarks[33] || landmarks[159] || centerPt;
-        const rEyePt = landmarks[263] || landmarks[386] || centerPt;
-        const nosePt = landmarks[4] || centerPt;
-        const mouthPt = landmarks[13] || centerPt;
-        const chinPt = landmarks[152] || centerPt;
+        const lEyePt = landmarks[33] || landmarks[159] || { x: faceCenterX - 30, y: faceCenterY - 15 };
+        const rEyePt = landmarks[263] || landmarks[386] || { x: faceCenterX + 30, y: faceCenterY - 15 };
+        const nosePt = landmarks[4] || { x: faceCenterX, y: faceCenterY + 10 };
+        const mouthPt = landmarks[13] || { x: faceCenterX, y: faceCenterY + 40 };
+        const chinPt = landmarks[152] || { x: faceCenterX, y: faceCenterY + 70 };
 
         const toUv = (pt: { x: number; y: number }) => {
-          const lx = (pt.x - centerX) / scaleNormX;
-          const ly = vSign * (-(pt.y - centerY) / scaleNormY);
+          const lx = (pt.x - faceCenterX) / (facePixelWidth * 0.5);
+          const ly = vSign * (-(pt.y - faceCenterY) / (facePixelHeight * 0.5));
           return new THREE.Vector2(
             Math.max(0, Math.min(1, 0.5 + lx * 0.42)),
             Math.max(0, Math.min(1, 0.46 + ly * 0.38))

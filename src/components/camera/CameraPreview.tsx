@@ -83,6 +83,13 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
     }
   }, [settings.maskFitScale]);
 
+  // Sync Mesh Shade Transparency / Opacity (20%–100%)
+  useEffect(() => {
+    if (filterEngineRef.current && settings.meshShadeOpacity !== undefined) {
+      filterEngineRef.current.setMeshShadeOpacity(settings.meshShadeOpacity);
+    }
+  }, [settings.meshShadeOpacity]);
+
   // Initialize camera stream
   const startCamera = useCallback(async (facing: 'user' | 'environment') => {
     setPermissionStatus('requesting');
@@ -155,6 +162,9 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
       filterEngineRef.current.setShow3DShadedMesh(!!settings.show3DShadedMesh);
       if (settings.maskFitScale) {
         filterEngineRef.current.setMaskFitScale(settings.maskFitScale);
+      }
+      if (settings.meshShadeOpacity !== undefined) {
+        filterEngineRef.current.setMeshShadeOpacity(settings.meshShadeOpacity);
       }
       if (activeFilterId) {
         filterEngineRef.current.setFilter(activeFilterId);
