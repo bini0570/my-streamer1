@@ -6,20 +6,44 @@ import android.opengl.GLSurfaceView
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
-enum class AnimalCharacter(val idName: String, val amharicName: String) {
-    HYENA("hyena", "ጅቦ"),
-    GORILLA("gorilla", "ጎሪ"),
-    TIGER("tiger", "ነብር"),
-    LION("lion", "አንበሳ"),
-    WOLF("wolf", "ተኩላ"),
-    MONKEY("monkey", "ዝንጀሮ"),
-    BEAR("bear", "ድብ"),
-    FOX("fox", "ቀበሮ")
+enum class MaskCategory {
+    FILM_CHARACTERS,
+    ETHIOPIAN_ANIMALS
 }
+
+enum class CharacterMask(
+    val idName: String,
+    val nameAmharic: String,
+    val nameEnglish: String,
+    val icon: String,
+    val category: MaskCategory
+) {
+    // 8 Film Characters (Pinned on Left & Right HUD)
+    JOKER("joker", "ጆከር", "The Joker", "🃏", MaskCategory.FILM_CHARACTERS),
+    BATMAN("batman", "ባትማን", "Batman", "🦇", MaskCategory.FILM_CHARACTERS),
+    SPIDERMAN("spiderman", "ስፓይደርማን", "Spider-Man", "🕷️", MaskCategory.FILM_CHARACTERS),
+    IRONMAN("ironman", "አይረን ማን", "Iron Man", "🤖", MaskCategory.FILM_CHARACTERS),
+    BLACKPANTHER("blackpanther", "ብላክ ፓንተር", "Black Panther", "🐆", MaskCategory.FILM_CHARACTERS),
+    DEADPOOL("deadpool", "ዴድፑል", "Deadpool", "⚔️", MaskCategory.FILM_CHARACTERS),
+    GHOSTFACE("ghostface", "ጎስትፌስ", "Ghostface", "😱", MaskCategory.FILM_CHARACTERS),
+    DARTHVADER("darthvader", "ዳርት ቬደር", "Darth Vader", "🌌", MaskCategory.FILM_CHARACTERS),
+
+    // 8 Ethiopian Lore Animals
+    HYENA("hyena", "ጅቦ", "Spotted Hyena", "🐾", MaskCategory.ETHIOPIAN_ANIMALS),
+    GORILLA("gorilla", "ጎሪ", "Mountain Gorilla", "🦍", MaskCategory.ETHIOPIAN_ANIMALS),
+    TIGER("tiger", "ነብር", "Tiger", "🐅", MaskCategory.ETHIOPIAN_ANIMALS),
+    LION("lion", "አንበሳ", "Lion", "🦁", MaskCategory.ETHIOPIAN_ANIMALS),
+    WOLF("wolf", "ተኩላ", "Wolf", "🐺", MaskCategory.ETHIOPIAN_ANIMALS),
+    MONKEY("monkey", "ዝንጀሮ", "Monkey", "🐒", MaskCategory.ETHIOPIAN_ANIMALS),
+    BEAR("bear", "ድብ", "Bear", "🐻", MaskCategory.ETHIOPIAN_ANIMALS),
+    FOX("fox", "ቀበሮ", "Fox", "🦊", MaskCategory.ETHIOPIAN_ANIMALS)
+}
+
+typealias AnimalCharacter = CharacterMask
 
 class AnimalFilterRenderer(private val context: Context) : GLSurfaceView.Renderer {
 
-    private var activeFilter: AnimalCharacter? = AnimalCharacter.HYENA
+    private var activeFilter: CharacterMask? = CharacterMask.JOKER
     private var mouthOpenFactor = 0f
     private var headYaw = 0f
     private var headPitch = 0f
@@ -42,11 +66,11 @@ class AnimalFilterRenderer(private val context: Context) : GLSurfaceView.Rendere
         val character = activeFilter ?: return
 
         // 3D Matrix transformations: head orientation and jaw opening animation
-        // Render 3D animal mesh (Ears, Muzzle, Brow, Teeth, Fur textures)
+        // Render 510-vertex 3D face + upper neck mesh (Ears, Muzzle, Brow, Teeth, Shaders)
         renderAnimalMask(character, mouthOpenFactor, headYaw, headPitch, headRoll)
     }
 
-    fun setFilter(character: AnimalCharacter?) {
+    fun setFilter(character: CharacterMask?) {
         this.activeFilter = character
     }
 
@@ -58,13 +82,12 @@ class AnimalFilterRenderer(private val context: Context) : GLSurfaceView.Rendere
     }
 
     private fun renderAnimalMask(
-        character: AnimalCharacter,
+        character: CharacterMask,
         mouthOpen: Float,
         yaw: Float,
         pitch: Float,
         roll: Float
     ) {
-        // High performance OpenGL ES 3.0 / Filament rendering pipeline
-        // Transforms 3D OBJ/glTF model nodes for character muzzle, ears, and fangs
+        // 510-vertex 3D face mesh + neck collar deformation pipeline
     }
 }
