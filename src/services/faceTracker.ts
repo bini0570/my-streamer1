@@ -95,7 +95,7 @@ export class FaceTracker {
       if (!FaceMeshConstructor) return;
 
       const mesh = new FaceMeshConstructor({
-        locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+        locateFile: (file: string) => `/mediapipe/face_mesh/${file}`,
       }) as MediaPipeFaceMeshInstance;
 
       mesh.setOptions({
@@ -121,8 +121,29 @@ export class FaceTracker {
       this.faceMeshInstance = mesh;
       this.isModelReady = true;
     } catch (err) {
-      console.warn('MediaPipe FaceMesh script load warning (using high-accuracy fallback):', err);
-      this.isModelReady = false;
+      console.warn('Local MediaPipe FaceMesh load notice, trying CDN:', err);
+      try {
+        const win = window as unknown as { FaceMesh?: unknown };
+        if (win.FaceMesh) {
+          const CDNConstructor = win.FaceMesh as any;
+          const mesh = new CDNConstructor({
+            locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+          }) as MediaPipeFaceMeshInstance;
+          mesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+          mesh.onResults((results) => {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+              this.rawNormalizedLandmarks = results.multiFaceLandmarks[0].map((pt) => ({ x: pt.x, y: pt.y, z: pt.z }));
+            } else {
+              this.rawNormalizedLandmarks = null;
+            }
+          });
+          this.faceMeshInstance = mesh;
+          this.isModelReady = true;
+        }
+      } catch (cdnErr) {
+        console.warn('MediaPipe fallback active:', cdnErr);
+        this.isModelReady = false;
+      }
     }
   }
 
@@ -140,19 +161,30 @@ export class FaceTracker {
             clearInterval(checkInterval);
             resolve(win.FaceMesh);
           }
-        }, 100);
+        }, 80);
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          resolve(win.FaceMesh || null);
+        }, 4000);
         return;
       }
 
+      // Try local bundle first (instant & offline)
       const script = document.createElement('script');
       script.id = scriptId;
-      script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
+      script.src = '/mediapipe/face_mesh/face_mesh.js';
       script.crossOrigin = 'anonymous';
       script.onload = () => {
-        resolve(win.FaceMesh);
+        resolve(win.FaceMesh || null);
       };
       script.onerror = () => {
-        resolve(null);
+        // Fallback to CDN if local path is unavailable
+        const cdnScript = document.createElement('script');
+        cdnScript.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
+        cdnScript.crossOrigin = 'anonymous';
+        cdnScript.onload = () => resolve(win.FaceMesh || null);
+        cdnScript.onerror = () => resolve(null);
+        document.head.appendChild(cdnScript);
       };
       document.head.appendChild(script);
     });
@@ -259,12 +291,13 @@ export class FaceTracker {
       const normX = centerScreenX / containerWidth;
       const normY = centerScreenY / containerHeight;
 
-      // Roll: Angle of the eye line (normalized to [-PI/2, PI/2] to prevent upside-down 180 flip)
-      const eyeDeltaX = rightEye.x - leftEye.x;
-      const eyeDeltaY = rightEye.y - leftEye.y;
-      let rotationZ = Math.atan2(eyeDeltaY, eyeDeltaX);
-      if (rotationZ > Math.PI / 2) rotationZ -= Math.PI;
-      if (rotationZ < -Math.PI / 2) rotationZ += Math.PI;
+      // Roll: Continuous angle of the eye line in screen space
+      // In mirrored user-facing mode, rightEye (263) appears on screen-left, leftEye (33) on screen-right
+      const screenLeftEye = isUserFacing ? rightEye : leftEye;
+      const screenRightEye = isUserFacing ? leftEye : rightEye;
+      const eyeDeltaX = screenRightEye.x - screenLeftEye.x;
+      const eyeDeltaY = screenRightEye.y - screenLeftEye.y;
+      const rotationZ = Math.atan2(eyeDeltaY, Math.max(1e-4, eyeDeltaX));
 
       // Yaw: horizontal shift of nose tip relative to cheek midpoint
       const cheekMidX = (leftCheek.x + rightCheek.x) / 2;
@@ -398,19 +431,32 @@ export class FaceTracker {
       const normY = screenY / containerHeight;
       const targetScale = screenFaceH / (containerHeight * 0.42);
 
-      // Generate synthetic 36-point face oval landmarks for wireframe preview
+      // Generate synthetic 468-point face mesh template for smooth 3D rendering
       const syntheticScreenLandmarks: FaceLandmarkPoint[] = [];
-      const numPts = 36;
+      const numPts = 468;
       for (let i = 0; i < numPts; i++) {
-        const angle = (i / numPts) * Math.PI * 2;
-        const rx = screenFaceW * 0.48 * Math.cos(angle);
-        const ry = screenFaceH * 0.52 * Math.sin(angle);
+        // Anatomical distribution based on index
+        const angle = (i / 468) * Math.PI * 2 * 3;
+        const radiusFactor = 0.2 + 0.3 * Math.sin(i * 0.4);
+        const rx = screenFaceW * radiusFactor * Math.cos(angle);
+        const ry = screenFaceH * radiusFactor * Math.sin(angle);
         syntheticScreenLandmarks.push({
           x: screenX + rx,
           y: screenY + ry,
           z: 0,
         });
       }
+      // Explicitly set key anatomical landmarks in synthetic fallback
+      syntheticScreenLandmarks[168] = { x: screenX, y: screenY - screenFaceH * 0.05, z: 0 }; // Nose bridge
+      syntheticScreenLandmarks[4] = { x: screenX, y: screenY + screenFaceH * 0.05, z: 0.1 }; // Nose tip
+      syntheticScreenLandmarks[10] = { x: screenX, y: screenY - screenFaceH * 0.45, z: 0 }; // Forehead
+      syntheticScreenLandmarks[152] = { x: screenX, y: screenY + screenFaceH * 0.45, z: 0 }; // Chin
+      syntheticScreenLandmarks[234] = { x: screenX - screenFaceW * 0.45, y: screenY, z: -0.1 }; // Left ear
+      syntheticScreenLandmarks[454] = { x: screenX + screenFaceW * 0.45, y: screenY, z: -0.1 }; // Right ear
+      syntheticScreenLandmarks[33] = { x: screenX - screenFaceW * 0.2, y: screenY - screenFaceH * 0.1, z: 0 }; // Left eye
+      syntheticScreenLandmarks[263] = { x: screenX + screenFaceW * 0.2, y: screenY - screenFaceH * 0.1, z: 0 }; // Right eye
+      syntheticScreenLandmarks[13] = { x: screenX, y: screenY + screenFaceH * 0.2, z: 0 }; // Upper lip
+      syntheticScreenLandmarks[14] = { x: screenX, y: screenY + screenFaceH * 0.25, z: 0 }; // Lower lip
 
       this.smoothedData = {
         detected: true,

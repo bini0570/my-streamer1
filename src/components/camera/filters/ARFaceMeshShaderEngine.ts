@@ -719,13 +719,56 @@ export class ARFaceMeshShaderEngine {
       brimMesh.rotation.x = Math.PI * 0.6;
       this.accessoryGroup.add(brimMesh);
     } else if (['hyena', 'wolf', 'fox'].includes(filterId)) {
-      // Pointed / Rounded Animal Ears
-      const furMat = new THREE.MeshStandardMaterial({ color: 0x854d0e, roughness: 0.8 });
+      // Pointed Canine Predator Ears (ጅቦ / ተኩላ / ቀበሮ)
+      const earColor = filterId === 'fox' ? 0xe11d48 : filterId === 'hyena' ? 0xd97706 : 0x0284c7;
+      const furMat = new THREE.MeshStandardMaterial({ color: earColor, roughness: 0.85 });
       [-1, 1].forEach((side) => {
-        const earGeom = new THREE.ConeGeometry(0.3, 0.85, 4);
+        const earGeom = new THREE.ConeGeometry(0.28, 0.95, 4);
         const earMesh = new THREE.Mesh(earGeom, furMat);
-        earMesh.position.set(side * 0.8, 1.3, -0.1);
+        earMesh.position.set(side * 0.78, 1.35, -0.1);
         earMesh.rotation.z = side * -0.25;
+        this.accessoryGroup.add(earMesh);
+      });
+    } else if (filterId === 'tiger') {
+      // Vivid Striped Feline Ears
+      const tigerMat = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.8 });
+      [-1, 1].forEach((side) => {
+        const earGeom = new THREE.ConeGeometry(0.25, 0.7, 4);
+        const earMesh = new THREE.Mesh(earGeom, tigerMat);
+        earMesh.position.set(side * 0.72, 1.25, -0.05);
+        earMesh.rotation.z = side * -0.2;
+        this.accessoryGroup.add(earMesh);
+      });
+    } else if (filterId === 'lion') {
+      // Golden Savanna Lion Mane + Ears
+      const lionMat = new THREE.MeshStandardMaterial({ color: 0xca8a04, roughness: 0.9 });
+      const maneGeom = new THREE.TorusGeometry(1.25, 0.28, 8, 24);
+      const maneMesh = new THREE.Mesh(maneGeom, lionMat);
+      maneMesh.position.set(0, 0.1, -0.2);
+      this.accessoryGroup.add(maneMesh);
+      [-1, 1].forEach((side) => {
+        const earGeom = new THREE.SphereGeometry(0.22, 8, 8);
+        const earMesh = new THREE.Mesh(earGeom, lionMat);
+        earMesh.position.set(side * 0.75, 1.15, -0.1);
+        this.accessoryGroup.add(earMesh);
+      });
+    } else if (filterId === 'gorilla') {
+      // Silverback Gorilla Heavy Crest Ridge (ጎሪ)
+      const gorillaMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.7 });
+      const crestGeom = new THREE.CylinderGeometry(0.18, 0.35, 1.2, 8);
+      const crestMesh = new THREE.Mesh(crestGeom, gorillaMat);
+      crestMesh.position.set(0, 1.3, -0.15);
+      crestMesh.rotation.z = Math.PI / 2;
+      this.accessoryGroup.add(crestMesh);
+    } else if (['bear', 'monkey'].includes(filterId)) {
+      // Rounded Ears (ድብ / ዝንጀሮ)
+      const earColor = filterId === 'bear' ? 0x78350f : 0xea580c;
+      const roundMat = new THREE.MeshStandardMaterial({ color: earColor, roughness: 0.85 });
+      [-1, 1].forEach((side) => {
+        const earGeom = new THREE.CylinderGeometry(0.25, 0.25, 0.1, 12);
+        const earMesh = new THREE.Mesh(earGeom, roundMat);
+        earMesh.position.set(side * (filterId === 'monkey' ? 0.95 : 0.75), filterId === 'monkey' ? 0.4 : 1.2, -0.1);
+        earMesh.rotation.x = Math.PI / 2;
         this.accessoryGroup.add(earMesh);
       });
     }
@@ -781,86 +824,81 @@ export class ARFaceMeshShaderEngine {
     const planeHeightAtDistance = 2 * Math.tan(vFOV / 2) * this.camera.position.z;
     const planeWidthAtDistance = planeHeightAtDistance * this.camera.aspect;
 
+    const canvasW = this.renderer.domElement.width || 640;
+    const canvasH = this.renderer.domElement.height || 480;
+    const worldUnitsPerPixel = planeHeightAtDistance / canvasH;
+
     const targetWorldX = (tracking.x - 0.5) * planeWidthAtDistance;
     const targetWorldY = -(tracking.y - 0.5) * planeHeightAtDistance;
 
     this.faceMeshGroup.position.set(targetWorldX, targetWorldY, 0);
+    // Zero out group rotation so that landmarks deformed directly from screen space
+    // do not suffer from double rotation / drift!
+    this.faceMeshGroup.rotation.set(0, 0, 0);
+    this.faceMeshGroup.scale.set(1, 1, 1);
 
-    // 2. Apply 3D Head Rotations (Yaw, Pitch, Roll)
+    // 2. 3D Accessories (horns, ears, hair locks) follow head pose
     const orientationMultiplier = this.flipVertical ? -1 : 1;
+    this.accessoryGroup.rotation.y = tracking.rotationY * 1.15 * filterSensitivity;
+    this.accessoryGroup.rotation.x = -tracking.rotationX * 1.15 * filterSensitivity * orientationMultiplier;
+    this.accessoryGroup.rotation.z = -tracking.rotationZ * orientationMultiplier;
 
-    this.faceMeshGroup.rotation.y = tracking.rotationY * 1.15 * filterSensitivity;
-    this.faceMeshGroup.rotation.x = -tracking.rotationX * 1.15 * filterSensitivity * orientationMultiplier;
-    this.faceMeshGroup.rotation.z = -tracking.rotationZ * orientationMultiplier;
-
-    // 3. Dynamic scaling based on initial face scan calibration
-    const canvasH = this.renderer.domElement.height || 600;
-    const worldUnitsPerPixel = planeHeightAtDistance / canvasH;
-    const faceWorldHeight = tracking.facePixelHeight * worldUnitsPerPixel;
-
-    // Standard model unit height ~2.2 units
-    let fittedScale = (faceWorldHeight / 2.2) * filterSensitivity;
-
-    // Apply calibration profile fine tuning
+    let scaleMultiplier = filterSensitivity;
     if (this.calibration) {
-      fittedScale *= (this.calibrationScaleX + this.calibrationScaleY) * 0.5;
+      scaleMultiplier *= (this.calibrationScaleX + this.calibrationScaleY) * 0.5;
     }
+    const accessoryScale = Math.max(0.4, Math.min(2.2, (tracking.facePixelHeight * worldUnitsPerPixel / 2.2) * scaleMultiplier));
+    this.accessoryGroup.scale.set(accessoryScale, accessoryScale * orientationMultiplier, accessoryScale);
 
-    const finalScale = Math.max(0.4, Math.min(2.4, fittedScale));
-    this.faceMeshGroup.scale.set(finalScale, finalScale, finalScale * this.calibratedDepthScale);
-    this.accessoryGroup.scale.set(1.0, orientationMultiplier, 1.0);
-
-    // 4. Real-time 3D Vertex Deformation from 468 MediaPipe Landmarks + Upper Neck Rings
+    // 3. Real-time 3D Vertex Deformation from 468 MediaPipe Landmarks + Upper Neck Rings
     const positions = this.faceMeshGeometry.attributes.position.array as Float32Array;
     const uvs = this.faceMeshGeometry.attributes.uv.array as Float32Array;
 
     const landmarks = tracking.screenLandmarks;
 
     if (landmarks && landmarks.length >= 468) {
-      // Determine anatomical vertical orientation:
-      // In standard screen space, forehead (10) has smaller Y (higher on screen) than chin (152)
-      const ptForehead = landmarks[10];
-      const ptChin = landmarks[152];
-      const isTopDown = ptForehead && ptChin ? ptForehead.y < ptChin.y : true;
-      const vSign = (isTopDown ? 1 : -1) * orientationMultiplier;
-
-      // Center reference: nose bridge / glabella (landmark 168)
-      const centerPt = landmarks[168] || { x: tracking.x * canvasH * this.camera.aspect, y: tracking.y * canvasH };
+      const centerPt = landmarks[168] || { x: tracking.x * canvasW, y: tracking.y * canvasH };
       const centerX = centerPt.x;
       const centerY = centerPt.y;
 
       const scaleNormX = (tracking.facePixelWidth || 180) * 0.5;
       const scaleNormY = (tracking.facePixelHeight || 220) * 0.5;
+      const vSign = orientationMultiplier;
 
-      // 4a. Deform 468 Face Vertices
+      // 3a. Deform 468 Face Vertices directly mapped to world units
       for (let i = 0; i < 468; i++) {
         const pt = landmarks[i];
         if (!pt) continue;
 
-        const localX = (pt.x - centerX) / scaleNormX;
-        let localY = vSign * (-(pt.y - centerY) / scaleNormY);
-        let localZ = (pt.z !== undefined ? -pt.z / scaleNormX : 0);
+        const relPixelX = (pt.x - centerX);
+        const relPixelY = (pt.y - centerY);
+
+        const localX = relPixelX * worldUnitsPerPixel * 1.05;
+        let localY = -relPixelY * worldUnitsPerPixel * 1.05 * vSign;
+        let localZ = (pt.z !== undefined ? -pt.z * worldUnitsPerPixel * 0.9 : 0);
 
         // Anatomical depth enhancement
-        if (i === 4) localZ += 0.35; // Nose tip
-        if (i === 168) localZ += 0.15; // Nose bridge
-        if (i === 152) localZ += 0.10; // Chin
+        if (i === 4) localZ += 0.25; // Nose tip
+        if (i === 168) localZ += 0.10; // Nose bridge
+        if (i === 152) localZ += 0.08; // Chin
 
         // Mouth jaw opening deformation
         if (i >= 13 && i <= 18) {
-          localY -= vSign * tracking.mouthOpenness * 0.22 * mouthSensitivity;
+          localY -= vSign * tracking.mouthOpenness * 0.18 * mouthSensitivity;
         }
 
-        positions[i * 3 + 0] = localX * 1.05; // Slightly expanded for 100% skin concealment
-        positions[i * 3 + 1] = localY * 1.08;
-        positions[i * 3 + 2] = localZ * 0.85;
+        positions[i * 3 + 0] = localX;
+        positions[i * 3 + 1] = localY;
+        positions[i * 3 + 2] = localZ;
 
         // Normalized UV coordinates
-        uvs[i * 2 + 0] = Math.max(0, Math.min(1, 0.5 + localX * 0.42));
-        uvs[i * 2 + 1] = Math.max(0, Math.min(1, 0.46 + localY * 0.38));
+        const normUvX = relPixelX / Math.max(1, scaleNormX);
+        const normUvY = -relPixelY / Math.max(1, scaleNormY) * vSign;
+        uvs[i * 2 + 0] = Math.max(0, Math.min(1, 0.5 + normUvX * 0.45));
+        uvs[i * 2 + 1] = Math.max(0, Math.min(1, 0.48 + normUvY * 0.42));
       }
 
-      // 4b. Deform Upper Neck & Throat Collar Vertices (Ring 1 & Ring 2)
+      // 3b. Deform Upper Neck & Throat Collar Vertices (Ring 1 & Ring 2)
       const jaw = JAW_CONTOUR_LANDMARKS;
       const ring1Offset = NUM_FACE_VERTICES; // 468
       const ring2Offset = NUM_FACE_VERTICES + NUM_NECK_RING1; // 489
@@ -871,23 +909,23 @@ export class ARFaceMeshShaderEngine {
         const jawY = positions[jawLandmarkIdx * 3 + 1];
         const jawZ = positions[jawLandmarkIdx * 3 + 2];
 
-        // Ring 1: Upper Neck / Submental Throat Level (drops down ~0.38 units below jaw)
+        // Ring 1: Upper Neck / Throat Level
         const idx1 = ring1Offset + k;
         positions[idx1 * 3 + 0] = jawX * 0.94;
-        positions[idx1 * 3 + 1] = jawY - vSign * 0.38;
-        positions[idx1 * 3 + 2] = jawZ - 0.20; // Recesses inward to throat
+        positions[idx1 * 3 + 1] = jawY - vSign * 0.32;
+        positions[idx1 * 3 + 2] = jawZ - 0.15;
 
-        uvs[idx1 * 2 + 0] = Math.max(0, Math.min(1, 0.5 + jawX * 0.40));
-        uvs[idx1 * 2 + 1] = 0.14; // Upper Neck UV Band
+        uvs[idx1 * 2 + 0] = Math.max(0, Math.min(1, 0.5 + (jawX / Math.max(0.1, scaleNormX * worldUnitsPerPixel)) * 0.42));
+        uvs[idx1 * 2 + 1] = 0.14;
 
-        // Ring 2: Lower Neck / Clavicle Base Collar Level (drops down ~0.82 units, flares to shoulders)
+        // Ring 2: Lower Neck / Collar Level
         const idx2 = ring2Offset + k;
-        positions[idx2 * 3 + 0] = jawX * 1.18;
-        positions[idx2 * 3 + 1] = jawY - vSign * 0.82;
-        positions[idx2 * 3 + 2] = jawZ - 0.14; // Flares out along collarbone
+        positions[idx2 * 3 + 0] = jawX * 1.15;
+        positions[idx2 * 3 + 1] = jawY - vSign * 0.65;
+        positions[idx2 * 3 + 2] = jawZ - 0.10;
 
-        uvs[idx2 * 2 + 0] = Math.max(0, Math.min(1, 0.5 + jawX * 0.48));
-        uvs[idx2 * 2 + 1] = 0.02; // Collar / Clavicle Base UV Band
+        uvs[idx2 * 2 + 0] = Math.max(0, Math.min(1, 0.5 + (jawX / Math.max(0.1, scaleNormX * worldUnitsPerPixel)) * 0.50));
+        uvs[idx2 * 2 + 1] = 0.02;
       }
 
       this.faceMeshGeometry.attributes.position.needsUpdate = true;

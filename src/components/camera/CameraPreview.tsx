@@ -15,7 +15,7 @@ import {
   ArrowUpDown
 } from 'lucide-react';
 import { AnimalFilter, FilterId, AppSettings, FaceTrackingData, FaceCalibrationProfile } from '../../types';
-import { ACTIVE_FILTERS } from '../../data/filtersCatalog';
+import { ACTIVE_FILTERS, ANIMAL_FILTERS, FILM_CHARACTER_FILTERS } from '../../data/filtersCatalog';
 import { ARFaceMeshShaderEngine } from './filters/ARFaceMeshShaderEngine';
 import { FaceTracker } from '../../services/faceTracker';
 import { FaceMeshWireframeOverlay } from './FaceMeshWireframeOverlay';
@@ -71,9 +71,14 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
     setShowFaceMeshWireframe(settings.showFaceMeshDebug);
   }, [settings.showFaceMeshDebug]);
 
-  // Split film character filters: 4 on Left, 4 on Right
-  const leftFilters = ACTIVE_FILTERS.slice(0, 4);
-  const rightFilters = ACTIVE_FILTERS.slice(4, 8);
+  // Category State: 'animals' (ጎሪ እና ጅቦ) or 'film_characters'
+  const [filterCategory, setFilterCategory] = useState<'animals' | 'film_characters'>('animals');
+  const allFilters = [...ANIMAL_FILTERS, ...FILM_CHARACTER_FILTERS];
+
+  // Split selected category filters: 4 on Left, 4 on Right
+  const currentCategoryFilters = filterCategory === 'animals' ? ANIMAL_FILTERS : FILM_CHARACTER_FILTERS;
+  const leftFilters = currentCategoryFilters.slice(0, 4);
+  const rightFilters = currentCategoryFilters.slice(4, 8);
 
   // Initialize camera stream
   const startCamera = useCallback(async (facing: 'user' | 'environment') => {
@@ -95,7 +100,17 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         },
       };
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      let mediaStream: MediaStream;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch {
+        // Fallback to generic constraints if ideal resolution is unavailable
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: facing },
+        });
+      }
+
       setStream(mediaStream);
       setPermissionStatus('granted');
 
@@ -285,23 +300,47 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
     setIsShutterActive(true);
     setTimeout(() => setIsShutterActive(false), 300);
 
-    // Merge video frame and WebGL 3D filter canvas
-    if (videoRef.current && filterCanvasRef.current) {
+    // Merge video frame and WebGL 3D filter canvas matching container crop
+    if (videoRef.current && filterCanvasRef.current && containerRef.current) {
+      const cWidth = containerRef.current.clientWidth || 1280;
+      const cHeight = containerRef.current.clientHeight || 720;
       const snapCanvas = document.createElement('canvas');
-      snapCanvas.width = videoRef.current.videoWidth || 1280;
-      snapCanvas.height = videoRef.current.videoHeight || 720;
+      snapCanvas.width = cWidth;
+      snapCanvas.height = cHeight;
       const ctx = snapCanvas.getContext('2d');
       if (ctx) {
-        // Draw camera frame
-        if (facingMode === 'user') {
-          ctx.translate(snapCanvas.width, 0);
-          ctx.scale(-1, 1);
+        const videoW = videoRef.current.videoWidth || cWidth;
+        const videoH = videoRef.current.videoHeight || cHeight;
+        const containerAspect = cWidth / cHeight;
+        const videoAspect = videoW / videoH;
+
+        let renderW = cWidth;
+        let renderH = cHeight;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        if (containerAspect > videoAspect) {
+          renderW = cWidth;
+          renderH = cWidth / videoAspect;
+          offsetY = (cHeight - renderH) / 2;
+        } else {
+          renderH = cHeight;
+          renderW = cHeight * videoAspect;
+          offsetX = (cWidth - renderW) / 2;
         }
-        ctx.drawImage(videoRef.current, 0, 0, snapCanvas.width, snapCanvas.height);
-        
-        // Reset transform & draw 3D AR filter
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.drawImage(filterCanvasRef.current, 0, 0, snapCanvas.width, snapCanvas.height);
+
+        ctx.save();
+        if (facingMode === 'user') {
+          ctx.translate(cWidth, 0);
+          ctx.scale(-1, 1);
+          ctx.drawImage(videoRef.current, offsetX, offsetY, renderW, renderH);
+        } else {
+          ctx.drawImage(videoRef.current, offsetX, offsetY, renderW, renderH);
+        }
+        ctx.restore();
+
+        // Draw 3D AR filter layer directly 1:1 on top!
+        ctx.drawImage(filterCanvasRef.current, 0, 0, cWidth, cHeight);
 
         // Download snapshot
         const dataUrl = snapCanvas.toDataURL('image/png');
@@ -392,7 +431,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             <div className="hidden md:flex items-center gap-1 px-2.5 py-1 bg-purple-900/80 text-purple-200 border border-purple-500/40 rounded-full backdrop-blur-md shadow-sm">
               <Sparkles className="w-3.5 h-3.5 text-purple-300" />
               <span className="font-semibold text-[11px]">
-                {ACTIVE_FILTERS.find((f) => f.id === activeFilterId)?.nameEnglish}
+                {allFilters.find((f) => f.id === activeFilterId)?.nameEnglish}
               </span>
             </div>
           )}
@@ -463,6 +502,32 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             {isFullscreen ? <Minimize2 className="w-4 h-4 text-white" /> : <Maximize2 className="w-4 h-4 text-white" />}
           </button>
         </div>
+      </div>
+
+      {/* Category Tabs: ጎሪ እና ጅቦ (Animals) vs Cinema Masks */}
+      <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 flex items-center bg-black/65 border border-purple-500/40 rounded-full p-1 backdrop-blur-md shadow-xl max-w-[95vw]">
+        <button
+          onClick={() => setFilterCategory('animals')}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+            filterCategory === 'animals'
+              ? 'bg-gradient-to-r from-purple-600 to-amber-600 text-white shadow-md glow-purple-sm'
+              : 'text-slate-300 hover:text-white'
+          }`}
+        >
+          <span>🐾 ጎሪ እና ጅቦ</span>
+          <span className="hidden sm:inline">(8 Animals)</span>
+        </button>
+        <button
+          onClick={() => setFilterCategory('film_characters')}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+            filterCategory === 'film_characters'
+              ? 'bg-gradient-to-r from-cyan-600 to-purple-600 text-white shadow-md glow-purple-sm'
+              : 'text-slate-300 hover:text-white'
+          }`}
+        >
+          <span>🎭 Cinema Masks</span>
+          <span className="hidden sm:inline">(8 Characters)</span>
+        </button>
       </div>
 
       {/* 8. EIGHT SELECTABLE FILM CHARACTER MASKS (4 on Left, 4 on Right) */}
