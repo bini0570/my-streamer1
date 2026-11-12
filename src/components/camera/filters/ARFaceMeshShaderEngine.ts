@@ -32,19 +32,43 @@ export class ARFaceMeshShaderEngine {
   private faceMeshGroup: THREE.Group;
   private faceMeshGeometry: THREE.BufferGeometry | null = null;
   private faceMeshMaterial: THREE.ShaderMaterial | null = null;
+  private sculptedMeshMaterial: THREE.ShaderMaterial | null = null;
+  private wireframeOverlayMaterial: THREE.MeshBasicMaterial | null = null;
+  private wireframeOverlayMesh: THREE.Mesh | null = null;
   private faceMesh: THREE.Mesh | null = null;
 
   // 3D Accessory Group (Ears, Bat cowl horns, hair locks, Vader brim, etc.)
   private accessoryGroup: THREE.Group;
 
-  // Active Filter ID and Category
-  private currentFilterId: FilterId = 'joker';
+  // Active Filter ID and Category (null means no character mask active)
+  private currentFilterId: FilterId | null = 'joker';
+
+  // 100% Opaque 3D Shaded Mesh Toggle & Single Mask Fit Scale (85%–135%)
+  private show3DShadedMesh = false;
+  private maskFitScale = 1.0;
+
+  // High-DPI logical CSS dimensions for 1:1 camera-to-mesh projection
+  private logicalWidth = 640;
+  private logicalHeight = 480;
 
   // Orientation flip
   private flipVertical = false;
 
   public setFlipVertical(flip: boolean): void {
     this.flipVertical = flip;
+  }
+
+  public setShow3DShadedMesh(show: boolean): void {
+    this.show3DShadedMesh = show;
+    if (!show && !this.currentFilterId) {
+      this.faceMeshGroup.visible = false;
+      this.renderer.clear();
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  public setMaskFitScale(scale: number): void {
+    this.maskFitScale = Math.max(0.85, Math.min(1.35, scale));
   }
 
   // Scanning Animation State
@@ -192,9 +216,70 @@ export class ARFaceMeshShaderEngine {
     this.faceMeshGeometry.setIndex(indices);
     this.faceMeshGeometry.computeVertexNormals();
 
+    // 100% Opaque Sculpted 3D Mesh Material (Studio-lit anatomical titanium/clay)
+    const sculptedVertexShader = `
+      varying vec3 vNormal;
+      varying vec3 vViewPosition;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        vViewPosition = -mvPosition.xyz;
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `;
+
+    const sculptedFragmentShader = `
+      varying vec3 vNormal;
+      varying vec3 vViewPosition;
+      void main() {
+        vec3 normal = normalize(vNormal);
+        vec3 viewDir = normalize(vViewPosition);
+
+        vec3 keyLight = normalize(vec3(0.4, 0.8, 0.9));
+        vec3 fillLight = normalize(vec3(-0.5, -0.2, 0.4));
+
+        float diffKey = max(dot(normal, keyLight), 0.0);
+        float diffFill = max(dot(normal, fillLight), 0.0) * 0.45;
+        float rim = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.0) * 0.65;
+
+        vec3 baseColor = vec3(0.24, 0.28, 0.36);
+        vec3 litColor = baseColor * (0.35 + diffKey * 0.7 + diffFill) + vec3(0.25, 0.55, 0.85) * rim;
+
+        // 100% OPACITY - completely conceals real skin underneath
+        gl_FragColor = vec4(litColor, 1.0);
+      }
+    `;
+
+    this.sculptedMeshMaterial = new THREE.ShaderMaterial({
+      vertexShader: sculptedVertexShader,
+      fragmentShader: sculptedFragmentShader,
+      side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: true,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    });
+
     this.faceMesh = new THREE.Mesh(this.faceMeshGeometry);
     this.faceMesh.frustumCulled = false;
+    this.faceMesh.renderOrder = 1;
     this.faceMeshGroup.add(this.faceMesh);
+
+    // Crisp 3D Edge Topology Overlay Mesh
+    this.wireframeOverlayMaterial = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8, // Crisp cyan 3D wireframe topology
+      wireframe: true,
+      transparent: false,
+      opacity: 1.0,
+      depthTest: true,
+      depthWrite: false,
+    });
+    this.wireframeOverlayMesh = new THREE.Mesh(this.faceMeshGeometry, this.wireframeOverlayMaterial);
+    this.wireframeOverlayMesh.renderOrder = 2;
+    this.wireframeOverlayMesh.frustumCulled = false;
+    this.wireframeOverlayMesh.visible = false;
+    this.faceMeshGroup.add(this.wireframeOverlayMesh);
   }
 
   /**
@@ -655,6 +740,9 @@ export class ARFaceMeshShaderEngine {
       side: THREE.DoubleSide,
       depthTest: true,
       depthWrite: true,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
     });
 
     if (this.faceMesh) {
@@ -777,19 +865,30 @@ export class ARFaceMeshShaderEngine {
   /**
    * Set active character filter (Joker, Batman, Spider-Man, etc.)
    */
-  public setFilter(filterId: FilterId): void {
+  public setFilter(filterId: FilterId | null): void {
     if (this.currentFilterId === filterId) return;
     this.currentFilterId = filterId;
-    this.updateShaderForFilter(filterId);
-    this.build3DAccessories(filterId);
+    if (filterId) {
+      this.updateShaderForFilter(filterId);
+      this.build3DAccessories(filterId);
+    } else {
+      this.accessoryGroup.clear();
+      if (!this.show3DShadedMesh) {
+        this.faceMeshGroup.visible = false;
+        this.renderer.clear();
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
   }
 
   public clearFilter(): void {
     this.currentFilterId = null;
-    this.faceMeshGroup.visible = false;
     this.accessoryGroup.clear();
-    this.renderer.clear();
-    this.renderer.render(this.scene, this.camera);
+    if (!this.show3DShadedMesh) {
+      this.faceMeshGroup.visible = false;
+      this.renderer.clear();
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   /**
@@ -816,7 +915,7 @@ export class ARFaceMeshShaderEngine {
    * Completely conceals the real face AND upper neck area with 100% opacity, zero lag, and zero drifting!
    */
   public update(tracking: FaceTrackingData, filterSensitivity = 1.0, mouthSensitivity = 1.0): void {
-    if (!this.currentFilterId || !tracking.detected || !this.faceMeshGeometry) {
+    if (!tracking.detected || !this.faceMeshGeometry || (!this.currentFilterId && !this.show3DShadedMesh)) {
       this.faceMeshGroup.visible = false;
       this.accessoryGroup.clear();
       this.renderer.clear();
@@ -825,35 +924,57 @@ export class ARFaceMeshShaderEngine {
 
     this.faceMeshGroup.visible = true;
 
+    // Configure 100% Opaque Shaded Mesh vs Filter rendering modes
+    if (this.show3DShadedMesh && !this.currentFilterId) {
+      // 1. Shaded Mesh Only (100% Opaque sculpted 3D mesh with crisp edge topology - NO skin shows through)
+      if (this.sculptedMeshMaterial && this.faceMesh) {
+        this.faceMesh.material = this.sculptedMeshMaterial;
+        this.faceMesh.visible = true;
+      }
+      if (this.wireframeOverlayMesh) this.wireframeOverlayMesh.visible = true;
+      this.accessoryGroup.visible = false;
+    } else if (this.show3DShadedMesh && this.currentFilterId) {
+      // 2. Shaded Mesh + Filter (Overlay crisp 3D edge topology directly on character mask)
+      if (this.faceMeshMaterial && this.faceMesh) {
+        this.faceMesh.material = this.faceMeshMaterial;
+        this.faceMesh.visible = true;
+      }
+      if (this.wireframeOverlayMesh) this.wireframeOverlayMesh.visible = true;
+      this.accessoryGroup.visible = true;
+    } else {
+      // 3. Filter Only (Smooth 100% opaque 3D character mask)
+      if (this.faceMeshMaterial && this.faceMesh) {
+        this.faceMesh.material = this.faceMeshMaterial;
+        this.faceMesh.visible = true;
+      }
+      if (this.wireframeOverlayMesh) this.wireframeOverlayMesh.visible = false;
+      this.accessoryGroup.visible = true;
+    }
+
     // 1. Map 2D normalized screen coordinates (0..1) to 3D world space at camera Z=0
     const vFOV = (this.camera.fov * Math.PI) / 180;
     const planeHeightAtDistance = 2 * Math.tan(vFOV / 2) * this.camera.position.z;
     const planeWidthAtDistance = planeHeightAtDistance * this.camera.aspect;
 
-    const canvasW = this.renderer.domElement.width || 640;
-    const canvasH = this.renderer.domElement.height || 480;
+    const canvasW = this.logicalWidth || 640;
+    const canvasH = this.logicalHeight || 480;
     const worldUnitsPerPixel = planeHeightAtDistance / canvasH;
 
     const targetWorldX = (tracking.x - 0.5) * planeWidthAtDistance;
     const targetWorldY = -(tracking.y - 0.5) * planeHeightAtDistance;
 
     this.faceMeshGroup.position.set(targetWorldX, targetWorldY, 0);
-    // Zero out group rotation so that landmarks deformed directly from screen space
-    // do not suffer from double rotation / drift!
     this.faceMeshGroup.rotation.set(0, 0, 0);
     this.faceMeshGroup.scale.set(1, 1, 1);
 
     // 2. 3D Accessories (horns, ears, hair locks) follow head pose
     const orientationMultiplier = this.flipVertical ? -1 : 1;
-    this.accessoryGroup.rotation.y = tracking.rotationY * 1.15 * filterSensitivity;
-    this.accessoryGroup.rotation.x = -tracking.rotationX * 1.15 * filterSensitivity * orientationMultiplier;
+    this.accessoryGroup.rotation.y = tracking.rotationY * 1.15;
+    this.accessoryGroup.rotation.x = -tracking.rotationX * 1.15 * orientationMultiplier;
     this.accessoryGroup.rotation.z = -tracking.rotationZ * orientationMultiplier;
 
-    let scaleMultiplier = filterSensitivity;
-    if (this.calibration) {
-      scaleMultiplier *= (this.calibrationScaleX + this.calibrationScaleY) * 0.5;
-    }
-    const accessoryScale = Math.max(0.4, Math.min(2.2, (tracking.facePixelHeight * worldUnitsPerPixel / 2.2) * scaleMultiplier));
+    const fitScale = this.maskFitScale; // 0.85 to 1.35
+    const accessoryScale = Math.max(0.4, Math.min(2.2, (tracking.facePixelHeight * worldUnitsPerPixel / 2.2) * fitScale));
     this.accessoryGroup.scale.set(accessoryScale, accessoryScale * orientationMultiplier, accessoryScale);
 
     // 3. Real-time 3D Vertex Deformation from 468 MediaPipe Landmarks + Upper Neck Rings
@@ -879,9 +1000,9 @@ export class ARFaceMeshShaderEngine {
         const relPixelX = (pt.x - centerX);
         const relPixelY = (pt.y - centerY);
 
-        const localX = relPixelX * worldUnitsPerPixel * 1.05;
-        let localY = -relPixelY * worldUnitsPerPixel * 1.05 * vSign;
-        let localZ = (pt.z !== undefined ? -pt.z * worldUnitsPerPixel * 0.9 : 0);
+        const localX = relPixelX * worldUnitsPerPixel * 1.05 * fitScale;
+        let localY = -relPixelY * worldUnitsPerPixel * 1.05 * vSign * fitScale;
+        let localZ = (pt.z !== undefined ? -pt.z * worldUnitsPerPixel * 0.9 * fitScale : 0);
 
         // Anatomical depth enhancement
         if (i === 4) localZ += 0.25; // Nose tip
@@ -977,6 +1098,8 @@ export class ARFaceMeshShaderEngine {
 
   public resize(width: number, height: number): void {
     if (width === 0 || height === 0) return;
+    this.logicalWidth = width;
+    this.logicalHeight = height;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);

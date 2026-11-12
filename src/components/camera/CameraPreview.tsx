@@ -1,25 +1,14 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  Camera,
-  RefreshCw,
   Maximize2,
-  Minimize2,
   Sparkles,
   CameraOff,
-  Sliders,
-  CheckCircle2,
-  Volume2,
-  Scan,
   Eye,
-  SlidersHorizontal,
-  ArrowUpDown
 } from 'lucide-react';
-import { AnimalFilter, FilterId, AppSettings, FaceTrackingData, FaceCalibrationProfile } from '../../types';
-import { ACTIVE_FILTERS, ANIMAL_FILTERS, FILM_CHARACTER_FILTERS } from '../../data/filtersCatalog';
+import { FilterId, AppSettings, FaceTrackingData } from '../../types';
+import { ANIMAL_FILTERS, FILM_CHARACTER_FILTERS } from '../../data/filtersCatalog';
 import { ARFaceMeshShaderEngine } from './filters/ARFaceMeshShaderEngine';
 import { FaceTracker } from '../../services/faceTracker';
-import { FaceMeshWireframeOverlay } from './FaceMeshWireframeOverlay';
-import { FaceScannerCalibrationOverlay } from './FaceScannerCalibrationOverlay';
 
 interface CameraPreviewProps {
   activeFilterId: FilterId | null;
@@ -37,8 +26,6 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   onSelectFilter,
   onClearFilter,
   settings,
-  onOpenSettings,
-  onUpdateSettings,
   isFullscreen,
   onToggleFullscreen,
 }) => {
@@ -50,12 +37,19 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   const [permissionStatus, setPermissionStatus] = useState<'prompt' | 'granted' | 'denied' | 'requesting'>('prompt');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>(settings.facingMode || 'user');
-  const [fps, setFps] = useState(60);
-  const [faceDetected, setFaceDetected] = useState(false);
-  const [mouthOpenVal, setMouthOpenVal] = useState(0);
-  const [showFaceMeshWireframe, setShowFaceMeshWireframe] = useState(false);
-  const [containerDimensions, setContainerDimensions] = useState({ width: 640, height: 480 });
-  const [currentTrackingData, setCurrentTrackingData] = useState<FaceTrackingData | null>(null);
+
+  const filterEngineRef = useRef<ARFaceMeshShaderEngine | null>(null);
+  const faceTrackerRef = useRef<FaceTracker | null>(null);
+  const animFrameIdRef = useRef<number | null>(null);
+
+  // Category State: 'animals' (8 Animals) or 'film_characters' (8 Cinema Masks)
+  const [filterCategory, setFilterCategory] = useState<'animals' | 'film_characters'>('animals');
+  const allFilters = [...ANIMAL_FILTERS, ...FILM_CHARACTER_FILTERS];
+
+  // Split selected category filters: 4 on Left, 4 on Right
+  const currentCategoryFilters = filterCategory === 'animals' ? ANIMAL_FILTERS : FILM_CHARACTER_FILTERS;
+  const leftFilters = currentCategoryFilters.slice(0, 4);
+  const rightFilters = currentCategoryFilters.slice(4, 8);
 
   // Handle Escape key to exit fullscreen mode
   useEffect(() => {
@@ -68,27 +62,26 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullscreen, onToggleFullscreen]);
 
-  // 100% Face Scan Calibration State
-  const [isScanning, setIsScanning] = useState(false);
-  const [isCalibrated, setIsCalibrated] = useState(false);
-  const [calibratedProfile, setCalibratedProfile] = useState<FaceCalibrationProfile | null>(null);
-
-  const filterEngineRef = useRef<ARFaceMeshShaderEngine | null>(null);
-  const faceTrackerRef = useRef<FaceTracker | null>(null);
-  const animFrameIdRef = useRef<number | null>(null);
-
+  // Sync facing mode from settings
   useEffect(() => {
-    setShowFaceMeshWireframe(settings.showFaceMeshDebug);
-  }, [settings.showFaceMeshDebug]);
+    if (settings.facingMode && settings.facingMode !== facingMode) {
+      setFacingMode(settings.facingMode);
+    }
+  }, [settings.facingMode, facingMode]);
 
-  // Category State: 'animals' (ጎሪ እና ጅቦ) or 'film_characters'
-  const [filterCategory, setFilterCategory] = useState<'animals' | 'film_characters'>('animals');
-  const allFilters = [...ANIMAL_FILTERS, ...FILM_CHARACTER_FILTERS];
+  // Sync 3D Shaded Mesh toggle with AR shader engine
+  useEffect(() => {
+    if (filterEngineRef.current) {
+      filterEngineRef.current.setShow3DShadedMesh(!!settings.show3DShadedMesh);
+    }
+  }, [settings.show3DShadedMesh]);
 
-  // Split selected category filters: 4 on Left, 4 on Right
-  const currentCategoryFilters = filterCategory === 'animals' ? ANIMAL_FILTERS : FILM_CHARACTER_FILTERS;
-  const leftFilters = currentCategoryFilters.slice(0, 4);
-  const rightFilters = currentCategoryFilters.slice(4, 8);
+  // Sync Mask & Mesh Fit Scale (85%–135%) with AR shader engine
+  useEffect(() => {
+    if (filterEngineRef.current && settings.maskFitScale) {
+      filterEngineRef.current.setMaskFitScale(settings.maskFitScale);
+    }
+  }, [settings.maskFitScale]);
 
   // Initialize camera stream
   const startCamera = useCallback(async (facing: 'user' | 'environment') => {
@@ -114,7 +107,6 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch {
-        // Fallback to generic constraints if ideal resolution is unavailable
         mediaStream = await navigator.mediaDevices.getUserMedia({
           audio: false,
           video: { facingMode: facing },
@@ -137,7 +129,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
     }
   }, [settings.cameraResolution]);
 
-  // Request camera on mount
+  // Request camera on mount or lens change
   useEffect(() => {
     startCamera(facingMode);
 
@@ -160,6 +152,10 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
 
     if (!filterEngineRef.current) {
       filterEngineRef.current = new ARFaceMeshShaderEngine(filterCanvasRef.current);
+      filterEngineRef.current.setShow3DShadedMesh(!!settings.show3DShadedMesh);
+      if (settings.maskFitScale) {
+        filterEngineRef.current.setMaskFitScale(settings.maskFitScale);
+      }
       if (activeFilterId) {
         filterEngineRef.current.setFilter(activeFilterId);
       }
@@ -170,30 +166,18 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
     }
   }, []);
 
-  // Update active 3D filter when activeFilterId changes
+  // Update active 3D filter immediately without delay
   useEffect(() => {
     if (filterEngineRef.current) {
       if (activeFilterId) {
         filterEngineRef.current.setFilter(activeFilterId);
       } else {
         filterEngineRef.current.clearFilter();
-        setIsScanning(false);
-        setShowFaceMeshWireframe(false);
       }
-    } else if (!activeFilterId) {
-      setIsScanning(false);
-      setShowFaceMeshWireframe(false);
     }
   }, [activeFilterId]);
 
-  // Synchronize vertical orientation flip with AR shader engine
-  useEffect(() => {
-    if (filterEngineRef.current) {
-      filterEngineRef.current.setFlipVertical(!!settings.flipMaskVertical);
-    }
-  }, [settings.flipMaskVertical]);
-
-  // Handle Resize of canvas overlay
+  // Handle Resize of canvas overlay (High-DPI logical projection)
   useEffect(() => {
     const handleResize = () => {
       if (containerRef.current && filterCanvasRef.current && filterEngineRef.current) {
@@ -202,7 +186,6 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
           filterCanvasRef.current.width = rect.width;
           filterCanvasRef.current.height = rect.height;
           filterEngineRef.current.resize(rect.width, rect.height);
-          setContainerDimensions({ width: rect.width, height: rect.height });
         }
       }
     };
@@ -221,17 +204,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
 
   // Main Render & Tracking Loop
   useEffect(() => {
-    let lastTime = performance.now();
-    let frameCount = 0;
-
-    const renderLoop = (time: number) => {
-      frameCount++;
-      if (time - lastTime >= 1000) {
-        setFps(frameCount);
-        frameCount = 0;
-        lastTime = time;
-      }
-
+    const renderLoop = () => {
       if (videoRef.current && filterEngineRef.current && faceTrackerRef.current && containerRef.current) {
         const cWidth = containerRef.current.clientWidth || 640;
         const cHeight = containerRef.current.clientHeight || 480;
@@ -243,20 +216,15 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
           facingMode
         );
 
-        setCurrentTrackingData(trackingData);
-        setFaceDetected(trackingData.detected);
-        setMouthOpenVal(Math.round(trackingData.mouthOpenness * 100));
-
-        // High-Fidelity 3D Face Mesh Mask with Custom AR Shaders (100% face coverage & Zero Lag)
+        // Update high-fidelity 3D Face Mesh with Shaded Mesh / Character Filter
         if (filterEngineRef.current) {
-          if (activeFilterId) {
+          if (activeFilterId || settings.show3DShadedMesh) {
             filterEngineRef.current.update(
               trackingData,
-              settings.filterSensitivity,
-              settings.mouthTrackingSensitivity
+              1.0,
+              1.2
             );
           } else {
-            // Completely removes mask, accessories, and tracking graphics when cleared
             filterEngineRef.current.clearFilter();
           }
         }
@@ -272,47 +240,15 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         cancelAnimationFrame(animFrameIdRef.current);
       }
     };
-  }, [settings.filterSensitivity, settings.mouthTrackingSensitivity, facingMode, activeFilterId]);
+  }, [facingMode, activeFilterId, settings.show3DShadedMesh]);
 
-  // Trigger Biometric 100% Face Scan Calibration
-  const triggerFaceScan = () => {
-    setIsScanning(true);
-    if (filterEngineRef.current) {
-      filterEngineRef.current.setScanState(true, 0.0);
+  // Click-Again Filter Toggle: clicking selected filter unselects & clears it
+  const handleFilterClick = (id: FilterId) => {
+    if (activeFilterId === id) {
+      onClearFilter();
+    } else {
+      onSelectFilter(id);
     }
-  };
-
-  // Handle Scan Progress for 3D Cyber Animated Sketch Mesh
-  const handleScanProgress = (prog: number) => {
-    if (filterEngineRef.current) {
-      filterEngineRef.current.setScanState(true, prog);
-    }
-  };
-
-  // Handle selecting a filter: immediately initiates face scan and saves face geometry
-  const handleSelectFilterWithScan = (id: FilterId) => {
-    onSelectFilter(id);
-    triggerFaceScan();
-  };
-
-  // Save calibrated facial geometry into FaceTracker and 3D Face Mesh Shader Engine
-  const handleCalibrationComplete = (profile: FaceCalibrationProfile) => {
-    setIsScanning(false);
-    setIsCalibrated(true);
-    setCalibratedProfile(profile);
-    if (faceTrackerRef.current) {
-      faceTrackerRef.current.setCalibration(profile);
-    }
-    if (filterEngineRef.current) {
-      filterEngineRef.current.setCalibration(profile);
-      filterEngineRef.current.setScanState(false, 1.0);
-    }
-  };
-
-  // Flip camera toggle
-  const toggleCameraFacing = () => {
-    const nextMode = facingMode === 'user' ? 'environment' : 'user';
-    setFacingMode(nextMode);
   };
 
   return (
@@ -339,43 +275,24 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         }`}
       />
 
-      {/* 2. 3D Face Mesh Mask AR Shader Canvas (Always active - draws 3D mask on face) */}
+      {/* 2. 100% Opaque WebGL 3D Shaded Mesh & Mask Canvas */}
       <canvas
         ref={filterCanvasRef}
         className="absolute inset-0 w-full h-full pointer-events-none z-15"
       />
 
-      {/* 3. Subtle Vignette & Lighting Overlay (Non-intrusive) */}
+      {/* 3. Subtle Vignette & Studio Lighting Overlay */}
       <div className="absolute inset-0 pointer-events-none z-10 bg-radial from-transparent via-black/10 to-black/50" />
 
       {/* ------------------------------------------------------------------ */}
       {/* ALL HUD OVERLAYS & CONTROLS (COMPLETELY HIDDEN IN FULLSCREEN MODE) */}
-      {/* When in Fullscreen: ZERO text, ZERO icons, ONLY the 3D mask on face*/}
+      {/* When in Fullscreen: ZERO text, ZERO icons, ONLY video + 3D filter  */}
       {/* ------------------------------------------------------------------ */}
       {!isFullscreen && (
         <>
-          {/* Face-Mesh Wireframe Overlay Canvas (Debug only) */}
-          <FaceMeshWireframeOverlay
-            trackingData={currentTrackingData}
-            enabled={showFaceMeshWireframe}
-            width={containerDimensions.width}
-            height={containerDimensions.height}
-          />
-
-          {/* 0 -> 100% Face Scanner & Calibration Overlay */}
-          <FaceScannerCalibrationOverlay
-            isScanning={isScanning}
-            trackingData={currentTrackingData}
-            onCalibrationComplete={handleCalibrationComplete}
-            onProgressUpdate={handleScanProgress}
-            width={containerDimensions.width}
-            height={containerDimensions.height}
-            filterName={ACTIVE_FILTERS.find((f) => f.id === activeFilterId)?.nameEnglish}
-          />
-
-          {/* TOP STATUS BAR: LIVE + 12.5K + Zero-Lag Badge + Top Controls */}
+          {/* TOP STATUS BAR: LIVE + 12.5K + Active Filter Badge + Fullscreen */}
           <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between text-xs font-medium">
-            {/* Left: • LIVE + 👁 12.5K Pills + Zero-Lag Lock Badge */}
+            {/* Left: • LIVE + 👁 12.5K Pills + Active Filter */}
             <div className="flex items-center gap-2">
               {/* • LIVE Pill */}
               <div className="flex items-center gap-1.5 px-3 py-1 bg-[#ff1744] text-white rounded-full font-bold tracking-wider uppercase text-[11px] shadow-lg shadow-red-900/50">
@@ -389,80 +306,27 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
                 <span>12.5K</span>
               </div>
 
-              {/* ZERO-LAG 100% LOCKED BADGE */}
-              {isCalibrated && (
-                <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-cyan-950/80 border border-cyan-400/80 text-cyan-200 rounded-full font-bold text-[11px] shadow-[0_0_12px_rgba(6,182,212,0.4)] backdrop-blur-md">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-                  <span>ZERO-LAG 100%</span>
-                </div>
-              )}
-
+              {/* Active Filter Pill */}
               {activeFilterId && (
-                <div className="hidden md:flex items-center gap-1 px-2.5 py-1 bg-purple-900/80 text-purple-200 border border-purple-500/40 rounded-full backdrop-blur-md shadow-sm">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-purple-900/80 text-purple-200 border border-purple-500/40 rounded-full backdrop-blur-md shadow-sm">
                   <Sparkles className="w-3.5 h-3.5 text-purple-300" />
                   <span className="font-semibold text-[11px]">
                     {allFilters.find((f) => f.id === activeFilterId)?.nameEnglish}
                   </span>
                 </div>
               )}
+
+              {/* 3D Shaded Mesh Active Pill */}
+              {settings.show3DShadedMesh && (
+                <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-cyan-950/80 border border-cyan-400/80 text-cyan-200 rounded-full font-bold text-[11px] shadow-[0_0_12px_rgba(6,182,212,0.4)] backdrop-blur-md">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                  <span>3D SHADED MESH</span>
+                </div>
+              )}
             </div>
 
-            {/* Right: Scan 100% Button + Mesh Toggle + Circular Tuning Slider + Fullscreen */}
+            {/* Right: Fullscreen Button */}
             <div className="flex items-center gap-2">
-              {/* Scan 100% Calibration Button */}
-              <button
-                onClick={triggerFaceScan}
-                className="flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-cyan-500 hover:to-purple-500 text-white rounded-full font-bold text-[11px] shadow-lg glow-purple-sm transition-all active:scale-95"
-                title="Scan Face to 100% & Lock Zero-Lag Tracker"
-                aria-label="Scan Face"
-              >
-                <Scan className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">ፊት ቃኝ</span>
-                <span>100% Scan</span>
-              </button>
-
-              {/* Face-Mesh Wireframe Toggle */}
-              <button
-                onClick={() => setShowFaceMeshWireframe((prev) => !prev)}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold backdrop-blur-md border transition-all ${
-                  showFaceMeshWireframe
-                    ? 'bg-purple-600 border-purple-300 text-white shadow-sm glow-purple-sm'
-                    : 'bg-black/60 border-white/10 text-slate-300 hover:text-white'
-                }`}
-                title="Toggle Real-Time MediaPipe Face-Mesh Wireframe"
-                aria-label="Toggle Face Mesh Wireframe"
-              >
-                <Scan className={`w-3 h-3 ${showFaceMeshWireframe ? 'text-white' : 'text-purple-400'}`} />
-                <span>Mesh</span>
-              </button>
-
-              {/* Flip Mask Y Toggle Button */}
-              <button
-                onClick={() => onUpdateSettings({ flipMaskVertical: !settings.flipMaskVertical })}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold backdrop-blur-md border transition-all ${
-                  settings.flipMaskVertical
-                    ? 'bg-amber-600/90 border-amber-300 text-white shadow-sm'
-                    : 'bg-black/60 border-white/10 text-slate-300 hover:text-white'
-                }`}
-                title="Invert / Flip 3D Mask Vertically (ገልብጥ)"
-                aria-label="Flip Mask Vertically"
-              >
-                <ArrowUpDown className="w-3.5 h-3.5 text-amber-300" />
-                <span className="hidden sm:inline">ገልብጥ</span>
-                <span>Flip Y</span>
-              </button>
-
-              {/* Settings Button */}
-              <button
-                onClick={onOpenSettings}
-                className="w-9 h-9 rounded-full bg-black/60 border border-white/15 hover:border-purple-500 text-white flex items-center justify-center transition-all backdrop-blur-md shadow-md active:scale-95"
-                title="Application Settings & Filter Tuning"
-                aria-label="Settings"
-              >
-                <SlidersHorizontal className="w-4 h-4 text-white" />
-              </button>
-
-              {/* Fullscreen Toggle Button */}
               <button
                 onClick={onToggleFullscreen}
                 className="w-9 h-9 rounded-full bg-black/60 border border-white/15 hover:border-purple-500 text-white flex items-center justify-center transition-all backdrop-blur-md shadow-md active:scale-95"
@@ -500,20 +364,20 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             </button>
           </div>
 
-          {/* LEFT COLUMN: 4 Pinned Character Masks */}
+          {/* LEFT COLUMN: 4 Pinned Character Masks (Click-again unselects) */}
           <div className="absolute left-3 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2.5">
             {leftFilters.map((filter) => {
               const isSelected = activeFilterId === filter.id;
               return (
                 <button
                   key={filter.id}
-                  onClick={() => handleSelectFilterWithScan(filter.id)}
+                  onClick={() => handleFilterClick(filter.id)}
                   className={`group relative flex items-center justify-center w-12 h-12 rounded-xl transition-all duration-200 ${
                     isSelected
                       ? 'bg-purple-600/90 border-2 border-cyan-300 text-white shadow-lg shadow-purple-900/60 scale-110'
                       : 'bg-slate-900/80 hover:bg-slate-800/90 border border-purple-500/30 text-slate-200 backdrop-blur-md hover:scale-105'
                   }`}
-                  title={`${filter.nameEnglish} (${filter.actorOrOrigin || filter.nameAmharic})`}
+                  title={`${filter.nameEnglish} - Tap again to unselect`}
                   aria-label={`Select ${filter.nameEnglish} mask`}
                 >
                   <span className="text-xl">{filter.icon}</span>
@@ -531,20 +395,20 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             })}
           </div>
 
-          {/* RIGHT COLUMN: 4 Pinned Character Masks */}
+          {/* RIGHT COLUMN: 4 Pinned Character Masks (Click-again unselects) */}
           <div className="absolute right-3 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2.5">
             {rightFilters.map((filter) => {
               const isSelected = activeFilterId === filter.id;
               return (
                 <button
                   key={filter.id}
-                  onClick={() => handleSelectFilterWithScan(filter.id)}
+                  onClick={() => handleFilterClick(filter.id)}
                   className={`group relative flex items-center justify-center w-12 h-12 rounded-xl transition-all duration-200 ${
                     isSelected
                       ? 'bg-purple-600/90 border-2 border-cyan-300 text-white shadow-lg shadow-purple-900/60 scale-110'
                       : 'bg-slate-900/80 hover:bg-slate-800/90 border border-purple-500/30 text-slate-200 backdrop-blur-md hover:scale-105'
                   }`}
-                  title={`${filter.nameEnglish} (${filter.actorOrOrigin || filter.nameAmharic})`}
+                  title={`${filter.nameEnglish} - Tap again to unselect`}
                   aria-label={`Select ${filter.nameEnglish} mask`}
                 >
                   <span className="text-xl">{filter.icon}</span>
@@ -562,69 +426,17 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             })}
           </div>
 
-          {/* BOTTOM STREAMING CONTROLS STRIP (Camera shoot button removed) */}
-          <div className="absolute bottom-3 left-0 right-0 z-20 flex items-center justify-center gap-3">
-            {/* Flip camera button */}
-            <button
-              onClick={toggleCameraFacing}
-              className="p-3 bg-slate-900/80 hover:bg-purple-900/60 text-slate-200 rounded-full border border-white/10 backdrop-blur-md transition-all active:scale-95"
-              title="Switch Front / Rear Camera"
-              aria-label="Switch Camera"
-            >
-              <RefreshCw className="w-5 h-5" />
-            </button>
-
-            {/* Flip Mask Y Button */}
-            <button
-              onClick={() => onUpdateSettings({ flipMaskVertical: !settings.flipMaskVertical })}
-              className={`p-3 rounded-full border backdrop-blur-md transition-all active:scale-95 ${
-                settings.flipMaskVertical
-                  ? 'bg-amber-600/90 border-amber-300 text-white shadow-md'
-                  : 'bg-slate-900/80 hover:bg-purple-900/60 border-white/10 text-slate-200'
-              }`}
-              title="Invert Mask Vertically (ጭምብል ገልብጥ)"
-              aria-label="Flip Mask Y"
-            >
-              <ArrowUpDown className="w-5 h-5" />
-            </button>
-
-            {/* FULLSCREEN BUTTON (Expands to pure mask on face with zero icons/text) */}
+          {/* BOTTOM CONTROLS STRIP: Single Fullscreen Button */}
+          <div className="absolute bottom-4 left-0 right-0 z-20 flex items-center justify-center">
             <button
               onClick={onToggleFullscreen}
-              className="px-4 py-2.5 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-600 to-cyan-500 hover:from-purple-500 hover:to-cyan-400 text-white font-bold text-xs shadow-lg glow-purple-sm transition-all active:scale-95 flex items-center gap-2"
+              className="px-5 py-2.5 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-600 to-cyan-500 hover:from-purple-500 hover:to-cyan-400 text-white font-bold text-xs shadow-lg glow-purple-sm transition-all active:scale-95 flex items-center gap-2"
               title="Fullscreen Mode (Full Screen with Filter Only)"
               aria-label="Enter Fullscreen"
             >
               <Maximize2 className="w-4 h-4 text-white" />
               <span>ሙሉ ማያ (Fullscreen)</span>
             </button>
-
-            {/* Recalibrate (100% Scan) Button */}
-            <button
-              onClick={triggerFaceScan}
-              className="px-3.5 py-2.5 bg-cyan-950/80 hover:bg-cyan-900/80 border border-cyan-400/60 text-cyan-200 rounded-2xl text-xs font-bold backdrop-blur-md transition-all flex items-center gap-1.5 active:scale-95 shadow-md"
-              title="Re-Scan Face & Lock Zero-Lag Tracker"
-            >
-              <Scan className="w-3.5 h-3.5 text-cyan-300" />
-              <span>Recalibrate (100%)</span>
-            </button>
-
-            {/* Clear Filter button */}
-            {activeFilterId && (
-              <button
-                onClick={() => {
-                  setIsScanning(false);
-                  setShowFaceMeshWireframe(false);
-                  filterEngineRef.current?.clearFilter();
-                  onClearFilter();
-                }}
-                className="px-3 py-2 bg-slate-900/80 hover:bg-red-950/70 border border-red-500/30 text-red-300 rounded-xl text-xs font-semibold backdrop-blur-md transition-colors active:scale-95"
-                title="Reset Mask Filter"
-                aria-label="Clear Filter"
-              >
-                Clear Filter
-              </button>
-            )}
           </div>
         </>
       )}

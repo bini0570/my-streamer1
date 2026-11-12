@@ -51,10 +51,12 @@ export interface AppSettings {
   theme: 'dark' | 'light';
   cameraResolution: '720p' | '1080p' | '480p';
   facingMode: 'user' | 'environment';
-  filterSensitivity: number; // 0.5 to 2.0
-  mouthTrackingSensitivity: number; // 0.5 to 2.0
-  showFaceMeshDebug: boolean;
-  flipMaskVertical: boolean; // Invert mask vertically if camera requires
+  maskFitScale: number; // 0.85 to 1.35 (Mask & Mesh Fit)
+  show3DShadedMesh: boolean; // 100% Opaque 3D Shaded Mesh
+  filterSensitivity?: number; // legacy optional
+  mouthTrackingSensitivity?: number; // legacy optional
+  showFaceMeshDebug?: boolean; // legacy optional
+  flipMaskVertical?: boolean; // legacy optional
 }
 
 export interface FaceLandmarkPoint {

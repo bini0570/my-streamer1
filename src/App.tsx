@@ -3,15 +3,11 @@ import {
   Menu,
   Settings as SettingsIcon,
   Crown,
-  Sparkles,
   Smartphone,
-  Scan,
   X,
-  Sliders,
-  ArrowUpDown
 } from 'lucide-react';
 import { FilterId, AppSettings } from './types';
-import { ACTIVE_FILTERS, FILM_CHARACTER_FILTERS, ANIMAL_FILTERS } from './data/filtersCatalog';
+import { FILM_CHARACTER_FILTERS, ANIMAL_FILTERS } from './data/filtersCatalog';
 import { CameraPreview } from './components/camera/CameraPreview';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { AndroidProjectModal } from './components/android/AndroidProjectModal';
@@ -22,10 +18,8 @@ export default function App() {
     theme: 'dark',
     cameraResolution: '720p',
     facingMode: 'user',
-    filterSensitivity: 1.0,
-    mouthTrackingSensitivity: 1.2,
-    showFaceMeshDebug: false,
-    flipMaskVertical: false,
+    maskFitScale: 1.0,
+    show3DShadedMesh: false,
   });
 
   // Camera & AR Filters State (Defaults to iconic Joker Film Character Mask)
@@ -51,11 +45,16 @@ export default function App() {
     setSettings((prev) => ({ ...prev, ...newSettings }));
   };
 
+  // Click-Again Filter Toggle
+  const handleToggleFilter = (id: FilterId) => {
+    setActiveFilterId((prev) => (prev === id ? null : id));
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#090514] text-slate-100 font-sans selection:bg-purple-600 selection:text-white">
       {/* ------------------------------------------------------------- */}
       {/* TOP HEADER (Hidden when in Fullscreen Mode)                  */}
-      {/* Left: ☰ | Center: 👑 ጎሪ እና ጅቦ | Right: ⚙                    */}
+      {/* Left: ☰ | Center: 👑 ጎሪ እና ጅቦ | Right: ⚙ (Single Settings)  */}
       {/* ------------------------------------------------------------- */}
       {!isCameraFullscreen && (
         <header className="h-14 px-4 flex items-center justify-between border-b border-purple-950/60 bg-[#070410]/95 backdrop-blur-md z-30 shrink-0">
@@ -84,7 +83,7 @@ export default function App() {
             </span>
           </div>
 
-          {/* Right: Settings Gear Icon */}
+          {/* Right: Single Settings Gear Icon */}
           <button
             onClick={() => setIsSettingsOpen(true)}
             className="p-2 text-slate-200 hover:text-white hover:bg-white/5 rounded-xl transition-all active:scale-95"
@@ -121,12 +120,13 @@ export default function App() {
                 <button
                   onClick={() => setIsDrawerOpen(false)}
                   className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5"
+                  aria-label="Close Drawer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              {/* Quick Navigation Items */}
+              {/* Navigation Items */}
               <div className="space-y-2">
                 <button
                   onClick={() => {
@@ -137,128 +137,86 @@ export default function App() {
                 >
                   <Smartphone className="w-4 h-4 shrink-0" />
                   <div>
-                    <div className="leading-tight">Android Studio & APK</div>
-                    <div className="text-[11px] text-purple-200 font-normal">Native Kotlin, CameraX & ARCore</div>
+                    <div className="leading-tight">Android Studio & APK Hub</div>
+                    <div className="text-[11px] text-purple-200 font-normal">Offline 3D AR Engine & Native Android</div>
                   </div>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsDrawerOpen(false);
-                    setIsSettingsOpen(true);
-                  }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl bg-slate-900/70 hover:bg-slate-800 border border-purple-900/30 text-slate-200 text-sm font-medium transition-all text-left"
-                >
-                  <Sliders className="w-4 h-4 text-purple-400 shrink-0" />
-                  <span>ካሜራና ማጣሪያ መቼቶች (Settings)</span>
-                </button>
-
-                {/* Flip Mask Vertically Quick Toggle */}
-                <button
-                  onClick={() => {
-                    handleUpdateSettings({ flipMaskVertical: !settings.flipMaskVertical });
-                  }}
-                  className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-900/70 hover:bg-slate-800 border border-purple-900/30 text-slate-200 text-sm font-medium transition-all text-left"
-                >
-                  <div className="flex items-center gap-3">
-                    <ArrowUpDown className="w-4 h-4 text-amber-400 shrink-0" />
-                    <span>ጭምብል ገልብጥ (Flip Mask Y)</span>
-                  </div>
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                      settings.flipMaskVertical ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400'
-                    }`}
-                  >
-                    {settings.flipMaskVertical ? 'FLIPPED' : 'NORMAL'}
-                  </span>
-                </button>
-
-                {/* MediaPipe Wireframe Toggle */}
-                <button
-                  onClick={() => {
-                    handleUpdateSettings({ showFaceMeshDebug: !settings.showFaceMeshDebug });
-                  }}
-                  className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-900/70 hover:bg-slate-800 border border-purple-900/30 text-slate-200 text-sm font-medium transition-all text-left"
-                >
-                  <div className="flex items-center gap-3">
-                    <Scan className="w-4 h-4 text-purple-400 shrink-0" />
-                    <span>MediaPipe 468 Wireframe</span>
-                  </div>
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                      settings.showFaceMeshDebug ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'
-                    }`}
-                  >
-                    {settings.showFaceMeshDebug ? 'ON' : 'OFF'}
-                  </span>
                 </button>
               </div>
 
-              {/* 3D Film Character Mask Selector Overview */}
+              {/* 3D Film Character Masks */}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-cyan-300">
-                    Film Character Masks (8 Actors)
+                    Film Character Masks (8)
                   </h4>
-                  <span className="text-[10px] text-purple-300 font-mono">Zero-Lag Tracked</span>
+                  <span className="text-[10px] text-purple-300 font-mono">Tap to Select/Unselect</span>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
-                  {FILM_CHARACTER_FILTERS.map((f) => (
-                    <button
-                      key={f.id}
-                      onClick={() => {
-                        setActiveFilterId(f.id);
-                        setIsDrawerOpen(false);
-                      }}
-                      className={`p-2 rounded-xl text-center flex flex-col items-center justify-center border transition-all ${
-                        activeFilterId === f.id
-                          ? 'border-cyan-400 bg-purple-950/80 text-white shadow-sm shadow-cyan-500/30'
-                          : 'border-white/5 bg-slate-900/50 hover:bg-slate-800/80 text-slate-300'
-                      }`}
-                      title={`${f.nameEnglish} - ${f.actorOrOrigin}`}
-                    >
-                      <span className="text-lg">{f.icon}</span>
-                      <span className="text-[10px] truncate max-w-full font-medium mt-0.5">
-                        {f.nameEnglish}
-                      </span>
-                    </button>
-                  ))}
+                  {FILM_CHARACTER_FILTERS.map((f) => {
+                    const isSelected = activeFilterId === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        onClick={() => {
+                          handleToggleFilter(f.id);
+                          setIsDrawerOpen(false);
+                        }}
+                        className={`p-2 rounded-xl text-center flex flex-col items-center justify-center border transition-all ${
+                          isSelected
+                            ? 'border-cyan-400 bg-purple-950/80 text-white shadow-sm shadow-cyan-500/30'
+                            : 'border-white/5 bg-slate-900/50 hover:bg-slate-800/80 text-slate-300'
+                        }`}
+                        title={`${f.nameEnglish} - ${f.actorOrOrigin}`}
+                      >
+                        <span className="text-lg">{f.icon}</span>
+                        <span className="text-[10px] truncate max-w-full font-medium mt-0.5">
+                          {f.nameEnglish}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Ethiopian Wildlife Masks */}
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-purple-300 mb-2">
-                  የዱር እንስሳት • Wild Animals (8)
-                </h4>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-purple-300">
+                    የዱር እንስሳት • Wild Animals (8)
+                  </h4>
+                  <span className="text-[10px] text-purple-300 font-mono">Tap to Select/Unselect</span>
+                </div>
                 <div className="grid grid-cols-4 gap-2">
-                  {ANIMAL_FILTERS.map((f) => (
-                    <button
-                      key={f.id}
-                      onClick={() => {
-                        setActiveFilterId(f.id);
-                        setIsDrawerOpen(false);
-                      }}
-                      className={`p-1.5 rounded-xl text-center flex flex-col items-center justify-center border transition-all ${
-                        activeFilterId === f.id
-                          ? 'border-purple-400 bg-purple-950/80 text-white shadow-sm glow-purple-sm'
-                          : 'border-white/5 bg-slate-900/40 hover:bg-slate-800/60 text-slate-400'
-                      }`}
-                    >
-                      <span className="text-base">{f.icon}</span>
-                      <span className="text-[9px] truncate max-w-full font-medium mt-0.5">
-                        {f.nameAmharic}
-                      </span>
-                    </button>
-                  ))}
+                  {ANIMAL_FILTERS.map((f) => {
+                    const isSelected = activeFilterId === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        onClick={() => {
+                          handleToggleFilter(f.id);
+                          setIsDrawerOpen(false);
+                        }}
+                        className={`p-1.5 rounded-xl text-center flex flex-col items-center justify-center border transition-all ${
+                          isSelected
+                            ? 'border-purple-400 bg-purple-950/80 text-white shadow-sm glow-purple-sm'
+                            : 'border-white/5 bg-slate-900/40 hover:bg-slate-800/60 text-slate-400'
+                        }`}
+                      >
+                        <span className="text-base">{f.icon}</span>
+                        <span className="text-[9px] truncate max-w-full font-medium mt-0.5">
+                          {f.nameAmharic}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
 
             {/* Drawer Footer */}
             <div className="pt-3 border-t border-purple-900/40 text-[11px] text-slate-500 text-center">
-              <div>ጎሪ እና ጅቦ • Cinema Character Masks & AR Studio</div>
-              <div className="text-cyan-400/80 mt-0.5 font-mono">100% Face Scan & Zero-Lag Engine</div>
+              <div>ጎሪ እና ጅቦ • AR Character & Animal Studio</div>
+              <div className="text-cyan-400/80 mt-0.5 font-mono">100% Offline 3D Mask Engine</div>
             </div>
           </div>
         </div>
@@ -270,7 +228,7 @@ export default function App() {
       <main className="flex-1 w-full h-full min-h-0 relative overflow-hidden">
         <CameraPreview
           activeFilterId={activeFilterId}
-          onSelectFilter={(id) => setActiveFilterId(id)}
+          onSelectFilter={handleToggleFilter}
           onClearFilter={() => setActiveFilterId(null)}
           settings={settings}
           onOpenSettings={() => setIsSettingsOpen(true)}
@@ -280,7 +238,7 @@ export default function App() {
         />
       </main>
 
-      {/* Settings Modal */}
+      {/* Settings Modal (Single Settings Control) */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
