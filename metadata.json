@@ -1,0 +1,9 @@
+{
+  "name": "ጎሪ እና ጅቦ (Gori ena Jibo)",
+  "description": "Personal AR Camera application featuring real-time 3D film character & animal face transformation masks, 100% biometric calibration scanner, zero-lag face tracking, and native Android Studio project integration.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
