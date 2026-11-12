@@ -95,7 +95,13 @@ export class FaceTracker {
       if (!FaceMeshConstructor) return;
 
       const mesh = new FaceMeshConstructor({
-        locateFile: (file: string) => `/mediapipe/face_mesh/${file}`,
+        locateFile: (file: string) => {
+          try {
+            return new URL(`mediapipe/face_mesh/${file}`, window.location.href).href;
+          } catch {
+            return `./mediapipe/face_mesh/${file}`;
+          }
+        },
       }) as MediaPipeFaceMeshInstance;
 
       mesh.setOptions({

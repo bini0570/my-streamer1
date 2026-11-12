@@ -90,6 +90,9 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
+    // AndroidX WebKit for High-Performance Hardware-Accelerated WebGL AR Face Studio
+    implementation("androidx.webkit:webkit:1.12.0")
+
     // CameraX (Camera access & image analysis)
     val cameraxVersion = "1.4.1"
     implementation("androidx.camera:camera-core:$cameraxVersion")

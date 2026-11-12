@@ -27,12 +27,15 @@ export const FaceMeshWireframeOverlay: React.FC<FaceMeshWireframeOverlayProps> =
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !enabled) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Always clear the canvas completely
     ctx.clearRect(0, 0, width, height);
+
+    if (!enabled) return;
 
     if (!trackingData || !trackingData.detected || !trackingData.screenLandmarks) {
       return;

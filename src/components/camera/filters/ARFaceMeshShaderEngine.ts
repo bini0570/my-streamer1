@@ -785,7 +785,11 @@ export class ARFaceMeshShaderEngine {
   }
 
   public clearFilter(): void {
+    this.currentFilterId = null;
     this.faceMeshGroup.visible = false;
+    this.accessoryGroup.clear();
+    this.renderer.clear();
+    this.renderer.render(this.scene, this.camera);
   }
 
   /**
@@ -812,8 +816,10 @@ export class ARFaceMeshShaderEngine {
    * Completely conceals the real face AND upper neck area with 100% opacity, zero lag, and zero drifting!
    */
   public update(tracking: FaceTrackingData, filterSensitivity = 1.0, mouthSensitivity = 1.0): void {
-    if (!tracking.detected || !this.faceMeshGeometry) {
+    if (!this.currentFilterId || !tracking.detected || !this.faceMeshGeometry) {
       this.faceMeshGroup.visible = false;
+      this.accessoryGroup.clear();
+      this.renderer.clear();
       return;
     }
 

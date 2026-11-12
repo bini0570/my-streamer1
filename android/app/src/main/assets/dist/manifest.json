@@ -1,0 +1,17 @@
+{
+  "short_name": "ጎሪ እና ጅቦ",
+  "name": "ጎሪ እና ጅቦ (Gori ena Jibo) - 3D AR Camera Studio",
+  "icons": [
+    {
+      "src": "/assets/aistudio/file_00000000af00820bbe65f19ddd8b4aae_57195457.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#090514",
+  "theme_color": "#090514",
+  "display": "standalone",
+  "orientation": "portrait"
+}

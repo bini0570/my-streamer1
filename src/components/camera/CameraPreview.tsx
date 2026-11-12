@@ -177,7 +177,12 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         filterEngineRef.current.setFilter(activeFilterId);
       } else {
         filterEngineRef.current.clearFilter();
+        setIsScanning(false);
+        setShowFaceMeshWireframe(false);
       }
+    } else if (!activeFilterId) {
+      setIsScanning(false);
+      setShowFaceMeshWireframe(false);
     }
   }, [activeFilterId]);
 
@@ -243,12 +248,17 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         setMouthOpenVal(Math.round(trackingData.mouthOpenness * 100));
 
         // High-Fidelity 3D Face Mesh Mask with Custom AR Shaders (100% face coverage & Zero Lag)
-        if (filterEngineRef.current && activeFilterId) {
-          filterEngineRef.current.update(
-            trackingData,
-            settings.filterSensitivity,
-            settings.mouthTrackingSensitivity
-          );
+        if (filterEngineRef.current) {
+          if (activeFilterId) {
+            filterEngineRef.current.update(
+              trackingData,
+              settings.filterSensitivity,
+              settings.mouthTrackingSensitivity
+            );
+          } else {
+            // Completely removes mask, accessories, and tracking graphics when cleared
+            filterEngineRef.current.clearFilter();
+          }
         }
       }
 
@@ -602,7 +612,12 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             {/* Clear Filter button */}
             {activeFilterId && (
               <button
-                onClick={onClearFilter}
+                onClick={() => {
+                  setIsScanning(false);
+                  setShowFaceMeshWireframe(false);
+                  filterEngineRef.current?.clearFilter();
+                  onClearFilter();
+                }}
                 className="px-3 py-2 bg-slate-900/80 hover:bg-red-950/70 border border-red-500/30 text-red-300 rounded-xl text-xs font-semibold backdrop-blur-md transition-colors active:scale-95"
                 title="Reset Mask Filter"
                 aria-label="Clear Filter"
