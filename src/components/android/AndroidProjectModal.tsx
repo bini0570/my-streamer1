@@ -312,12 +312,12 @@ export const AndroidProjectModal: React.FC<AndroidProjectModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-white">ጎሪ እና ጅቦ - Android Studio Project Hub</h3>
-                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-950 text-purple-300 border border-purple-500/40">
-                  Native Kotlin / Compose
+                <h3 className="text-base font-bold text-white">VisionAI Tracker - Android Project Hub</h3>
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-950 text-cyan-300 border border-cyan-500/40">
+                  Native Kotlin / WebGL
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Complete Android source tree, CameraX, Media3, and APK guide</p>
+              <p className="text-xs text-slate-400">Offline YOLO11n neural engine, ByteTrack & hardware-accelerated Camera</p>
             </div>
           </div>
 

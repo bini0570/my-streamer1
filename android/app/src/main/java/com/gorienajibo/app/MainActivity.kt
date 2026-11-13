@@ -26,9 +26,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.webkit.WebViewAssetLoader
 
 /**
- * Gori ena Jibo (ጎሪ እና ጅቦ) - Main Activity
- * Hosts the hardware-accelerated 3D Face Mesh & AR Transformation Mask Studio
- * completely offline with zero-lag MediaPipe tracking and custom GLSL Three.js shaders.
+ * VisionAI Tracker - Main Activity
+ * Hosts the hardware-accelerated Real-Time AI Object Detection & ByteTrack Motion Tracking Studio
+ * completely offline with YOLO11n neural engine and WebGL acceleration.
  */
 class MainActivity : ComponentActivity() {
 
@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity() {
         } else {
             Toast.makeText(
                 this,
-                "ጎሪ እና ጅቦ requires camera permission for real-time 3D face mesh tracking",
+                "VisionAI Tracker requires camera permission for real-time AI object detection & motion tracking",
                 Toast.LENGTH_LONG
             ).show()
         }

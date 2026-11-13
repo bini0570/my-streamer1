@@ -6,11 +6,13 @@ import {
   Camera,
   Sliders,
   ShieldCheck,
-  Info,
-  Sparkles,
-  Smartphone,
+  Cpu,
   Layers,
-  Crosshair,
+  Smartphone,
+  Eye,
+  CheckCircle,
+  Zap,
+  Activity,
 } from 'lucide-react';
 import { AppSettings } from '../../types';
 
@@ -31,21 +33,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const currentScale = settings.maskFitScale || 1.0;
-  const scalePercent = Math.round(currentScale * 100);
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg max-h-[90vh] bg-slate-900 border border-purple-500/30 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="relative w-full max-w-lg max-h-[90vh] bg-[#090d1a] border border-cyan-500/30 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-slate-100">
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-white/10 bg-slate-950/70">
+        <div className="flex items-center justify-between p-5 border-b border-white/10 bg-black/50">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-purple-950/80 border border-purple-500/40 text-purple-300">
+            <div className="p-2 rounded-xl bg-cyan-950/80 border border-cyan-500/40 text-cyan-300">
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">መቼቶች (Settings)</h3>
-              <p className="text-xs text-slate-400">Configure AR camera, 3D mask fit, and shaded mesh</p>
+              <h3 className="text-base font-bold text-white font-mono">VisionAI Settings</h3>
+              <p className="text-xs text-slate-400">Configure YOLO11n AI detection, ByteTrack & camera</p>
             </div>
           </div>
 
@@ -62,256 +61,184 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="flex-1 overflow-y-auto p-5 space-y-5 text-sm">
           {/* 1. Theme Configuration */}
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+            <label className="text-xs font-semibold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5 font-mono">
               <Moon className="w-3.5 h-3.5" />
-              <span>ገጽታ (Theme)</span>
+              <span>Theme Appearance</span>
             </label>
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => onUpdateSettings({ theme: 'dark' })}
                 className={`flex items-center justify-center gap-2 p-3 rounded-xl border transition-all ${
                   settings.theme === 'dark'
-                    ? 'bg-purple-600/30 border-purple-500 text-white shadow-sm glow-purple-sm'
-                    : 'bg-slate-950/50 border-white/10 text-slate-400 hover:text-white'
+                    ? 'bg-cyan-600/25 border-cyan-400 text-white shadow-sm'
+                    : 'bg-black/40 border-white/10 text-slate-400 hover:text-white'
                 }`}
               >
-                <Moon className="w-4 h-4 text-purple-400" />
-                <span className="font-semibold">ጨለማ (Dark Neon)</span>
+                <Moon className="w-4 h-4 text-cyan-400" />
+                <span className="font-semibold text-xs">Cyber Dark (HUD)</span>
               </button>
 
               <button
                 onClick={() => onUpdateSettings({ theme: 'light' })}
                 className={`flex items-center justify-center gap-2 p-3 rounded-xl border transition-all ${
                   settings.theme === 'light'
-                    ? 'bg-purple-600/30 border-purple-500 text-white shadow-sm glow-purple-sm'
-                    : 'bg-slate-950/50 border-white/10 text-slate-400 hover:text-white'
+                    ? 'bg-cyan-600/25 border-cyan-400 text-white shadow-sm'
+                    : 'bg-black/40 border-white/10 text-slate-400 hover:text-white'
                 }`}
               >
                 <Sun className="w-4 h-4 text-amber-400" />
-                <span className="font-semibold">ብርሃን (Light)</span>
+                <span className="font-semibold text-xs">High Contrast Light</span>
               </button>
             </div>
           </div>
 
           {/* 2. Camera Configuration */}
           <div className="space-y-3">
-            <label className="text-xs font-semibold text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+            <label className="text-xs font-semibold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5 font-mono">
               <Camera className="w-3.5 h-3.5" />
-              <span>የካሜራ ቅንብሮች (Camera Settings)</span>
+              <span>Camera Stream & Resolution</span>
             </label>
 
-            <div className="bg-slate-950/50 border border-white/10 rounded-xl p-3.5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="font-medium text-slate-200">ጥራት (Resolution)</span>
-                  <p className="text-[11px] text-slate-400">Higher resolution requires more GPU power</p>
-                </div>
-                <select
-                  value={settings.cameraResolution}
-                  onChange={(e) =>
-                    onUpdateSettings({
-                      cameraResolution: e.target.value as '720p' | '1080p' | '480p',
-                    })
-                  }
-                  className="bg-slate-900 border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500"
-                >
-                  <option value="1080p">1080p FHD (High Detail)</option>
-                  <option value="720p">720p HD (Balanced)</option>
-                  <option value="480p">480p (Fast Performance)</option>
-                </select>
-              </div>
-
-              <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                <div>
-                  <span className="font-medium text-slate-200">የካሜራ አቅጣጫ (Lens Facing)</span>
-                  <p className="text-[11px] text-slate-400">Front selfie or rear environment camera</p>
-                </div>
-                <button
-                  onClick={() =>
-                    onUpdateSettings({
-                      facingMode: settings.facingMode === 'user' ? 'environment' : 'user',
-                    })
-                  }
-                  className="px-3 py-1.5 bg-slate-900 border border-white/15 hover:border-purple-500 text-xs text-purple-300 rounded-lg font-medium transition-all"
-                >
-                  {settings.facingMode === 'user' ? 'ፊት ካሜራ (Front Selfie)' : 'የኋላ ካሜራ (Rear Lens)'}
-                </button>
-              </div>
+            {/* Resolution Selector */}
+            <div className="grid grid-cols-3 gap-2">
+              {(['720p', '1080p', '480p'] as const).map((res) => {
+                const isSelected = settings.cameraResolution === res;
+                return (
+                  <button
+                    key={res}
+                    onClick={() => onUpdateSettings({ cameraResolution: res })}
+                    className={`p-2.5 rounded-xl border text-center transition-all ${
+                      isSelected
+                        ? 'bg-cyan-600/30 border-cyan-400 text-white font-bold'
+                        : 'bg-black/40 border-white/10 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="text-xs">{res.toUpperCase()}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      {res === '720p' ? 'Balanced' : res === '1080p' ? 'Ultra HD' : 'Fast (A06)'}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* 3. Single Mask & Mesh Fit Slider (85% - 135%) */}
-          <div className="space-y-3">
-            <label className="text-xs font-semibold text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>የጭምብልና ሜሽ ልክ (Mask & Mesh Fit)</span>
+          {/* 3. AI Detection & Tracking Configuration */}
+          <div className="space-y-3 p-3.5 rounded-xl bg-black/40 border border-white/10">
+            <label className="text-xs font-semibold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5 font-mono">
+              <Zap className="w-3.5 h-3.5" />
+              <span>YOLO11n & ByteTrack Controls</span>
             </label>
 
-            <div className="bg-slate-950/50 border border-white/10 rounded-xl p-3.5 space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="font-medium text-slate-200">የመጠን ማስተካከያ (Scale Fit)</span>
-                  <p className="text-[11px] text-slate-400">Scale 3D mask & neck collar to fit your face proportions (85%–135%)</p>
-                </div>
-                <span className="font-mono text-sm font-bold text-cyan-300 bg-cyan-950/80 px-2.5 py-0.5 rounded-lg border border-cyan-500/30">
-                  {scalePercent}%
+            {/* Confidence Slider */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-300">Confidence Threshold:</span>
+                <span className="font-mono font-bold text-cyan-300">
+                  {Math.round((settings.confidenceThreshold || 0.45) * 100)}%
                 </span>
               </div>
-
               <input
                 type="range"
-                min="0.85"
-                max="1.35"
-                step="0.01"
-                value={currentScale}
+                min="30"
+                max="90"
+                step="5"
+                value={Math.round((settings.confidenceThreshold || 0.45) * 100)}
                 onChange={(e) =>
-                  onUpdateSettings({ maskFitScale: parseFloat(e.target.value) })
+                  onUpdateSettings({ confidenceThreshold: parseInt(e.target.value, 10) / 100 })
                 }
-                className="w-full h-2 bg-slate-800 accent-purple-500 rounded-lg cursor-pointer mt-2"
+                className="w-full accent-cyan-400 cursor-pointer h-2 bg-slate-800 rounded-lg appearance-none"
               />
-
-              <div className="flex justify-between text-[10px] text-slate-500 font-mono pt-1">
-                <span>85% (Compact)</span>
-                <span>100% (Default)</span>
-                <span>135% (Expanded)</span>
+              <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                <span>30% (More detections)</span>
+                <span>90% (Strict high precision)</span>
               </div>
             </div>
-          </div>
 
-          {/* 3b. AI Feature Detection Reticles (Eye, Nose, Mouth First) */}
-          <div className="space-y-3">
-            <label className="text-xs font-semibold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Crosshair className="w-3.5 h-3.5" />
-              <span>AI Feature Detection (Eyes, Nose, Mouth)</span>
-            </label>
-
-            <div className="bg-slate-950/50 border border-white/10 rounded-xl p-3.5 flex items-center justify-between">
-              <div className="pr-4">
-                <span className="font-medium text-slate-200">HUD Organ Reticles & 1€ Smoothing</span>
-                <p className="text-[11px] text-slate-400 leading-relaxed mt-0.5">
-                  Detects and locks onto your Left Eye, Right Eye, Nose Tip, and Mouth before drawing the mask. Eliminates micro-jitter with Casiez 1€ dynamic cutoff filtering.
-                </p>
-              </div>
-              <button
-                onClick={() =>
-                  onUpdateSettings({
-                    showFeatureReticles: settings.showFeatureReticles === false ? true : false,
-                  })
-                }
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                  settings.showFeatureReticles !== false
-                    ? 'bg-cyan-500 text-slate-950 shadow-md glow-purple-sm'
-                    : 'bg-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                {settings.showFeatureReticles !== false ? 'በርቷል (ON)' : 'ጠፍቷል (OFF)'}
-              </button>
-            </div>
-          </div>
-
-          {/* 4. 100% Opaque 3D Shaded Mesh Toggle & Transparency Slider */}
-          <div className="space-y-3">
-            <label className="text-xs font-semibold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5" />
-              <span>100% Opaque 3D Shaded Mesh</span>
-            </label>
-
-            <div className="bg-slate-950/50 border border-white/10 rounded-xl p-3.5 space-y-3">
+            {/* Feature Toggles */}
+            <div className="space-y-2 pt-2 border-t border-white/10">
+              {/* Motion Trails */}
               <div className="flex items-center justify-between">
-                <div className="pr-4">
-                  <span className="font-medium text-slate-200">3D Shaded Mesh Topology</span>
-                  <p className="text-[11px] text-slate-400 leading-relaxed mt-0.5">
-                    Renders an opaque studio-lit sculpted 3D polygonal mesh covering face & neck collar with crisp edge topology overlaid cleanly (no skin shows through). If a filter is selected, overlays 3D topology onto the mask.
-                  </p>
-                </div>
-                <button
-                  onClick={() =>
-                    onUpdateSettings({ show3DShadedMesh: !settings.show3DShadedMesh })
-                  }
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
-                    settings.show3DShadedMesh
-                      ? 'bg-cyan-500 text-slate-950 shadow-md glow-purple-sm'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {settings.show3DShadedMesh ? 'በርቷል (ON)' : 'ጠፍቷል (OFF)'}
-                </button>
-              </div>
-
-              {/* Mesh Shade Transparency / Opacity Slider */}
-              <div className="pt-3 border-t border-white/5 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-medium text-slate-200">የጥላው ግልጸኝነት (Mesh Shade Opacity)</span>
-                    <p className="text-[11px] text-slate-400">Increase or decrease mesh shade transparency (20% – 100%)</p>
-                  </div>
-                  <span className="font-mono text-xs font-bold text-cyan-300 bg-cyan-950/80 px-2.5 py-0.5 rounded border border-cyan-500/30">
-                    {Math.round((settings.meshShadeOpacity ?? 1.0) * 100)}%
-                  </span>
+                <div>
+                  <div className="text-xs font-semibold text-white">Fading Motion Trails</div>
+                  <div className="text-[11px] text-slate-400">5-second neon trajectory lines</div>
                 </div>
                 <input
-                  type="range"
-                  min="0.20"
-                  max="1.00"
-                  step="0.02"
-                  value={settings.meshShadeOpacity ?? 1.0}
-                  onChange={(e) =>
-                    onUpdateSettings({ meshShadeOpacity: parseFloat(e.target.value) })
-                  }
-                  className="w-full h-1.5 bg-slate-800 accent-cyan-400 rounded-lg cursor-pointer mt-1"
+                  type="checkbox"
+                  checked={settings.showMotionTrails !== false}
+                  onChange={(e) => onUpdateSettings({ showMotionTrails: e.target.checked })}
+                  className="w-4 h-4 accent-cyan-400 rounded cursor-pointer"
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                  <span>20% (Ghost / Hologram)</span>
-                  <span>60% (Translucent)</span>
-                  <span>100% (Solid Opaque)</span>
+              </div>
+
+              {/* Bounding Box Dimensions */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-white">Bounding Box Dimensions</div>
+                  <div className="text-[11px] text-slate-400">Live box size in pixels & speed</div>
                 </div>
+                <input
+                  type="checkbox"
+                  checked={settings.showBoxDimensions !== false}
+                  onChange={(e) => onUpdateSettings({ showBoxDimensions: e.target.checked })}
+                  className="w-4 h-4 accent-cyan-400 rounded cursor-pointer"
+                />
+              </div>
+
+              {/* Confidence Percent */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-white">Confidence Percentage</div>
+                  <div className="text-[11px] text-slate-400">Display AI confidence on label badges</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.showConfidence !== false}
+                  onChange={(e) => onUpdateSettings({ showConfidence: e.target.checked })}
+                  className="w-4 h-4 accent-cyan-400 rounded cursor-pointer"
+                />
               </div>
             </div>
           </div>
 
-          {/* 5. Android Studio Native Project Export */}
-          <div className="p-4 rounded-xl bg-purple-950/40 border border-purple-500/40 space-y-2">
-            <div className="flex items-center gap-2 text-purple-300 font-semibold text-xs uppercase tracking-wider">
-              <Smartphone className="w-4 h-4" />
-              <span>Android Studio Kotlin Project & APK Hub</span>
+          {/* 4. Architecture & Offline Guarantee */}
+          <div className="p-3.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 space-y-2 text-xs">
+            <div className="flex items-center gap-1.5 font-bold text-cyan-300 font-mono">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span>100% Offline AI Operation</span>
             </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Explore the native Android codebase (Kotlin, CameraX, WebGL AR Engine) and instructions for building or installing the offline APK.
+            <p className="text-[11px] text-slate-300 leading-relaxed">
+              YOLO11n ONNX neural weights (10.9MB) and the ByteTrack engine run locally on the device via WebGL hardware acceleration. Zero internet connection or cloud API calls required.
             </p>
-            <button
-              onClick={() => {
-                onClose();
-                onOpenAndroidHub();
-              }}
-              className="mt-1 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg shadow-md transition-all flex items-center gap-2"
-            >
-              <span>View Android Source & APK Guide</span>
-            </button>
           </div>
 
-          {/* 6. About */}
-          <div className="p-4 rounded-xl bg-slate-950/50 border border-white/10 space-y-1.5">
-            <div className="flex items-center gap-2 text-white font-semibold text-xs">
-              <Info className="w-4 h-4 text-purple-400" />
-              <span>ስለ ጎሪ እና ጅቦ (About Gori & Jibo)</span>
+          {/* 5. Android Native APK & Studio Link */}
+          <button
+            onClick={() => {
+              onClose();
+              onOpenAndroidHub();
+            }}
+            className="w-full flex items-center justify-between p-3.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold transition-all shadow-md group"
+          >
+            <div className="flex items-center gap-2.5">
+              <Smartphone className="w-5 h-5 text-white" />
+              <div className="text-left">
+                <div className="text-xs font-bold">Android Studio & Native APK Hub</div>
+                <div className="text-[10px] text-cyan-200">View Gradle build, assets & release APK</div>
+              </div>
             </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              ጎሪ እና ጅቦ (Gori ena Jibo) is a personal AR transformation studio featuring 16 character & animal masks, 100% opaque 3D shaded mesh, and zero-lag tracking. Works completely offline.
-            </p>
-            <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-500 font-mono">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Version 1.0.0 · 100% Offline Capable</span>
-            </div>
-          </div>
+            <span className="text-xs font-mono text-cyan-200 group-hover:translate-x-1 transition-transform">➔</span>
+          </button>
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-white/10 bg-slate-950/70 flex items-center justify-end">
+        <div className="p-4 border-t border-white/10 bg-black/40 flex items-center justify-between text-xs text-slate-400">
+          <span className="font-mono text-[11px]">VisionAI Tracker v2.0</span>
           <button
             onClick={onClose}
-            className="px-5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold shadow-md glow-purple-sm transition-all"
+            className="px-4 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium transition-all"
           >
-            አስቀምጥና ዝጋ (Save & Close)
+            Done
           </button>
         </div>
       </div>
