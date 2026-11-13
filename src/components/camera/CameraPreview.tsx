@@ -10,6 +10,9 @@ import {
   ChevronUp,
   XCircle,
   CheckCircle2,
+  Menu,
+  Crown,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 import { FilterId, AppSettings, FaceTrackingData, DetectedFaceFeatures } from '../../types';
 import { ANIMAL_FILTERS, FILM_CHARACTER_FILTERS } from '../../data/filtersCatalog';
@@ -23,6 +26,7 @@ interface CameraPreviewProps {
   onClearFilter: () => void;
   settings: AppSettings;
   onOpenSettings: () => void;
+  onOpenDrawer: () => void;
   onUpdateSettings: (newSettings: Partial<AppSettings>) => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
@@ -33,6 +37,8 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   onSelectFilter,
   onClearFilter,
   settings,
+  onOpenSettings,
+  onOpenDrawer,
   onUpdateSettings,
   isFullscreen,
   onToggleFullscreen,
@@ -329,22 +335,45 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
       {/* ------------------------------------------------------------------ */}
       {!isFullscreen && (
         <>
-          {/* TOP STATUS BAR: Live Pill + AI Feature Detection Status + Quick Toggles */}
-          <div className="absolute top-3 left-3 right-3 z-25 flex items-center justify-between pointer-events-auto">
-            {/* Left: Live Badge & Active Filter */}
+          {/* TOP UNIFIED GLASS HUD BAR */}
+          <div className="absolute top-3 left-3 right-3 z-25 flex items-center justify-between pointer-events-auto gap-2">
+            {/* Left: Menu + Crown Logo + LIVE + Viewers */}
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-full font-bold uppercase text-[10px] tracking-wider shadow-lg shadow-red-950/60">
+              {/* Menu Hamburger */}
+              <button
+                onClick={onOpenDrawer}
+                className="w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 border border-white/15 hover:border-purple-400 text-white flex items-center justify-center backdrop-blur-xl shadow-lg transition-all active:scale-95"
+                title="Open Menu Drawer"
+                aria-label="Open Navigation Drawer"
+              >
+                <Menu className="w-4 h-4 text-slate-100" />
+              </button>
+
+              {/* Ethiopian Brand Pill */}
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0a0614]/80 border border-purple-500/30 rounded-full backdrop-blur-xl shadow-lg select-none">
+                <Crown className="w-4 h-4 text-amber-400 fill-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.8)]" />
+                <span className="text-xs sm:text-sm font-black tracking-wider text-white font-['Noto_Sans_Ethiopic'] drop-shadow-[0_0_8px_rgba(192,132,252,0.6)]">
+                  <span className="bg-gradient-to-r from-white via-purple-200 to-fuchsia-300 bg-clip-text text-transparent">
+                    ጎሪ እና ጅቦ
+                  </span>
+                </span>
+              </div>
+
+              {/* LIVE Badge */}
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-full font-bold uppercase text-[10px] tracking-wider shadow-lg shadow-red-950/60">
                 <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                 <span>LIVE</span>
               </div>
 
-              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950/70 border border-white/10 text-slate-200 rounded-full text-[11px] backdrop-blur-md">
+              {/* Viewers */}
+              <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950/70 border border-white/10 text-slate-200 rounded-full text-[11px] backdrop-blur-md">
                 <Eye className="w-3.5 h-3.5 text-slate-400" />
                 <span className="font-mono font-medium">12.5K</span>
               </div>
 
+              {/* Active Filter Pill */}
               {activeFilter && (
-                <div className="flex items-center gap-1.5 px-3 py-1 bg-purple-950/80 text-purple-200 border border-purple-500/50 rounded-full backdrop-blur-md shadow-md animate-in fade-in duration-200">
+                <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 bg-purple-950/80 text-purple-200 border border-purple-500/50 rounded-full backdrop-blur-md shadow-md animate-in fade-in duration-200">
                   <span className="text-sm">{activeFilter.icon}</span>
                   <span className="font-bold text-[11px] text-white">{activeFilter.nameEnglish}</span>
                 </div>
@@ -352,7 +381,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             </div>
 
             {/* Center: Live AI Feature Lock Status Pill */}
-            <div className="hidden md:flex items-center gap-2 px-3.5 py-1 bg-black/65 border border-cyan-500/30 rounded-full backdrop-blur-xl shadow-lg">
+            <div className="hidden md:flex items-center gap-2 px-3.5 py-1.5 bg-black/65 border border-cyan-500/30 rounded-full backdrop-blur-xl shadow-lg">
               {isFaceDetected && detectedFeatures?.allLocked ? (
                 <>
                   <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" />
@@ -377,14 +406,14 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
               )}
             </div>
 
-            {/* Right: Quick Action Buttons (Reticles, 3D Mesh, Fullscreen) */}
-            <div className="flex items-center gap-2">
+            {/* Right: Quick Action Controls (Reticles, 3D Mesh, Settings, Fullscreen) */}
+            <div className="flex items-center gap-1.5 sm:gap-2">
               {/* Feature Reticles Toggle */}
               <button
                 onClick={() => onUpdateSettings({ showFeatureReticles: !showReticles })}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-xs font-semibold backdrop-blur-md transition-all active:scale-95 ${
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-xs font-semibold backdrop-blur-xl transition-all active:scale-95 ${
                   showReticles
-                    ? 'bg-cyan-950/80 border-cyan-400/80 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.4)]'
+                    ? 'bg-cyan-950/85 border-cyan-400 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.4)]'
                     : 'bg-black/50 border-white/15 text-slate-400 hover:text-white'
                 }`}
                 title="Toggle Eye, Nose, Mouth HUD Reticles"
@@ -396,9 +425,9 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
               {/* 3D Shaded Mesh Toggle */}
               <button
                 onClick={() => onUpdateSettings({ show3DShadedMesh: !settings.show3DShadedMesh })}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-xs font-semibold backdrop-blur-md transition-all active:scale-95 ${
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-xs font-semibold backdrop-blur-xl transition-all active:scale-95 ${
                   settings.show3DShadedMesh
-                    ? 'bg-purple-950/80 border-purple-400/80 text-purple-200 shadow-[0_0_12px_rgba(168,85,247,0.4)]'
+                    ? 'bg-purple-950/85 border-purple-400 text-purple-200 shadow-[0_0_12px_rgba(168,85,247,0.4)]'
                     : 'bg-black/50 border-white/15 text-slate-400 hover:text-white'
                 }`}
                 title="Toggle 3D Shaded Mesh Topology"
@@ -407,10 +436,20 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
                 <span className="hidden sm:inline">3D Mesh</span>
               </button>
 
+              {/* Settings Gear Button */}
+              <button
+                onClick={onOpenSettings}
+                className="w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 border border-white/20 hover:border-cyan-400 text-slate-200 hover:text-white flex items-center justify-center backdrop-blur-xl shadow-md transition-all active:scale-95"
+                title="Open Settings"
+                aria-label="Application Settings"
+              >
+                <SettingsIcon className="w-3.5 h-3.5" />
+              </button>
+
               {/* Fullscreen Button */}
               <button
                 onClick={onToggleFullscreen}
-                className="w-8 h-8 rounded-full bg-black/60 border border-white/20 hover:border-purple-400 text-white flex items-center justify-center backdrop-blur-md shadow-md transition-all active:scale-95"
+                className="w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 border border-white/20 hover:border-purple-400 text-white flex items-center justify-center backdrop-blur-xl shadow-md transition-all active:scale-95"
                 title="Pure Fullscreen Mode (Mask Only)"
               >
                 <Maximize2 className="w-3.5 h-3.5 text-white" />

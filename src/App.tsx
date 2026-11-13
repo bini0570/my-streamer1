@@ -53,49 +53,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#090514] text-slate-100 font-sans selection:bg-purple-600 selection:text-white">
-      {/* ------------------------------------------------------------- */}
-      {/* TOP HEADER (Hidden when in Fullscreen Mode)                  */}
-      {/* Left: ☰ | Center: 👑 ጎሪ እና ጅቦ | Right: ⚙ (Single Settings)  */}
-      {/* ------------------------------------------------------------- */}
-      {!isCameraFullscreen && (
-        <header className="h-14 px-4 flex items-center justify-between border-b border-purple-950/60 bg-[#070410]/95 backdrop-blur-md z-30 shrink-0">
-          {/* Left: Hamburger Menu Icon */}
-          <button
-            onClick={() => setIsDrawerOpen(true)}
-            className="p-2 text-slate-200 hover:text-white hover:bg-white/5 rounded-xl transition-all active:scale-95"
-            title="Open Menu"
-            aria-label="Open Navigation Drawer"
-          >
-            <Menu className="w-6 h-6 text-slate-100" />
-          </button>
-
-          {/* Center: Gold Crown + Stylized Ethiopian Wordmark */}
-          <div className="flex items-center gap-2 select-none">
-            {/* Gold Crown */}
-            <div className="relative flex items-center justify-center">
-              <Crown className="w-5 h-5 text-amber-400 fill-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]" />
-            </div>
-
-            {/* Stylized Amharic Text: ጎሪ እና ጅቦ */}
-            <span className="text-xl sm:text-2xl font-black tracking-wider text-white font-['Noto_Sans_Ethiopic'] drop-shadow-[0_0_12px_rgba(192,132,252,0.6)] flex items-center gap-1.5">
-              <span className="bg-gradient-to-r from-white via-purple-200 to-fuchsia-300 bg-clip-text text-transparent">
-                ጎሪ እና ጅቦ
-              </span>
-            </span>
-          </div>
-
-          {/* Right: Single Settings Gear Icon */}
-          <button
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-2 text-slate-200 hover:text-white hover:bg-white/5 rounded-xl transition-all active:scale-95"
-            title="Open Settings"
-            aria-label="Application Settings"
-          >
-            <SettingsIcon className="w-6 h-6 text-slate-100" />
-          </button>
-        </header>
-      )}
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#06030c] text-slate-100 font-sans selection:bg-purple-600 selection:text-white">
 
       {/* ------------------------------------------------------------- */}
       {/* SIDE DRAWER (When Hamburger is Clicked)                      */}
@@ -234,6 +192,7 @@ export default function App() {
           onClearFilter={() => setActiveFilterId(null)}
           settings={settings}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenDrawer={() => setIsDrawerOpen(true)}
           onUpdateSettings={handleUpdateSettings}
           isFullscreen={isCameraFullscreen}
           onToggleFullscreen={() => setIsCameraFullscreen(!isCameraFullscreen)}
