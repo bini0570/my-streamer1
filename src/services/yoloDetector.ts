@@ -40,16 +40,7 @@ export class YoloDetector {
     try {
       onProgress?.('Configuring ONNX Runtime engine...');
 
-      // Configure WASM asset path relative to current document location
-      const currentDir = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
-      const basePath = import.meta.env.BASE_URL || './';
-      const onnxWasmPath = basePath.endsWith('/') ? `${basePath}onnx/` : `${basePath}/onnx/`;
-
-      try {
-        ort.env.wasm.wasmPaths = new URL('onnx/', currentDir).href;
-      } catch {
-        ort.env.wasm.wasmPaths = onnxWasmPath;
-      }
+      // Configure ONNX runtime environment
       ort.env.wasm.numThreads = 1; // Safe for WebViews without COOP/COEP SharedArrayBuffer
 
       onProgress?.('Loading YOLO11n neural weights...');
