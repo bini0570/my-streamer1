@@ -4,11 +4,18 @@ import {
   Sparkles,
   CameraOff,
   Eye,
+  Crosshair,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+  XCircle,
+  CheckCircle2,
 } from 'lucide-react';
-import { FilterId, AppSettings, FaceTrackingData } from '../../types';
+import { FilterId, AppSettings, FaceTrackingData, DetectedFaceFeatures } from '../../types';
 import { ANIMAL_FILTERS, FILM_CHARACTER_FILTERS } from '../../data/filtersCatalog';
 import { ARFaceMeshShaderEngine } from './filters/ARFaceMeshShaderEngine';
 import { FaceTracker } from '../../services/faceTracker';
+import { FaceFeaturesReticlesOverlay } from './FaceFeaturesReticlesOverlay';
 
 interface CameraPreviewProps {
   activeFilterId: FilterId | null;
@@ -26,6 +33,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   onSelectFilter,
   onClearFilter,
   settings,
+  onUpdateSettings,
   isFullscreen,
   onToggleFullscreen,
 }) => {
@@ -38,18 +46,26 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>(settings.facingMode || 'user');
 
+  // Dimensions for high-DPI projection
+  const [dimensions, setDimensions] = useState({ width: 640, height: 480 });
+
+  // Face & Feature Tracking State
+  const [isFaceDetected, setIsFaceDetected] = useState(false);
+  const [detectedFeatures, setDetectedFeatures] = useState<DetectedFaceFeatures | undefined>(undefined);
+
+  // Modern Floating Filter Dock State
+  const [isDockCollapsed, setIsDockCollapsed] = useState(false);
+  const [filterCategory, setFilterCategory] = useState<'film_characters' | 'animals'>('film_characters');
+
+  // Reticles toggle state (default true)
+  const showReticles = settings.showFeatureReticles !== false;
+
   const filterEngineRef = useRef<ARFaceMeshShaderEngine | null>(null);
   const faceTrackerRef = useRef<FaceTracker | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
 
-  // Category State: 'animals' (8 Animals) or 'film_characters' (8 Cinema Masks)
-  const [filterCategory, setFilterCategory] = useState<'animals' | 'film_characters'>('animals');
-  const allFilters = [...ANIMAL_FILTERS, ...FILM_CHARACTER_FILTERS];
-
-  // Split selected category filters: 4 on Left, 4 on Right
-  const currentCategoryFilters = filterCategory === 'animals' ? ANIMAL_FILTERS : FILM_CHARACTER_FILTERS;
-  const leftFilters = currentCategoryFilters.slice(0, 4);
-  const rightFilters = currentCategoryFilters.slice(4, 8);
+  const allFilters = [...FILM_CHARACTER_FILTERS, ...ANIMAL_FILTERS];
+  const currentCategoryFilters = filterCategory === 'film_characters' ? FILM_CHARACTER_FILTERS : ANIMAL_FILTERS;
 
   // Handle Escape key to exit fullscreen mode
   useEffect(() => {
@@ -195,6 +211,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         if (rect.width > 0 && rect.height > 0) {
           filterCanvasRef.current.width = rect.width;
           filterCanvasRef.current.height = rect.height;
+          setDimensions({ width: rect.width, height: rect.height });
           filterEngineRef.current.resize(rect.width, rect.height);
         }
       }
@@ -212,8 +229,10 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
     };
   }, []);
 
-  // Main Render & Tracking Loop
+  // Main Render & Tracking Loop (60 FPS)
   useEffect(() => {
+    let frameCount = 0;
+
     const renderLoop = () => {
       if (videoRef.current && filterEngineRef.current && faceTrackerRef.current && containerRef.current) {
         const cWidth = containerRef.current.clientWidth || 640;
@@ -226,7 +245,14 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
           facingMode
         );
 
-        // Update high-fidelity 3D Face Mesh with Shaded Mesh / Character Filter
+        // Update React feature reticles state throttled to ~30fps for buttery smooth UI
+        frameCount++;
+        if (frameCount % 2 === 0) {
+          setIsFaceDetected(trackingData.detected);
+          setDetectedFeatures(trackingData.features);
+        }
+
+        // Update high-fidelity 3D Face Mesh anchored to detected features
         if (filterEngineRef.current) {
           if (activeFilterId || settings.show3DShadedMesh) {
             filterEngineRef.current.update(
@@ -252,29 +278,22 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
     };
   }, [facingMode, activeFilterId, settings.show3DShadedMesh]);
 
-  // Click-Again Filter Toggle: clicking selected filter unselects & clears it
-  const handleFilterClick = (id: FilterId) => {
-    if (activeFilterId === id) {
-      onClearFilter();
-    } else {
-      onSelectFilter(id);
-    }
-  };
+  const activeFilter = allFilters.find((f) => f.id === activeFilterId);
 
   return (
     <div
       ref={containerRef}
       onClick={() => {
-        // Tapping/clicking anywhere in fullscreen mode cleanly exits fullscreen
+        // Tapping anywhere in fullscreen mode cleanly exits fullscreen
         if (isFullscreen) {
           onToggleFullscreen();
         }
       }}
-      className={`relative w-full h-full overflow-hidden bg-slate-950 flex items-center justify-center select-none ${
+      className={`relative w-full h-full overflow-hidden bg-[#06030c] flex items-center justify-center select-none ${
         isFullscreen ? 'fixed inset-0 z-50 cursor-pointer' : ''
       }`}
     >
-      {/* 1. Camera Video Element */}
+      {/* 1. Live Camera Video Feed */}
       <video
         ref={videoRef}
         playsInline
@@ -285,190 +304,265 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         }`}
       />
 
-      {/* 2. 100% Opaque WebGL 3D Shaded Mesh & Mask Canvas */}
+      {/* 2. WebGL 3D Shaded Mesh & Mask Canvas Overlay */}
       <canvas
         ref={filterCanvasRef}
         className="absolute inset-0 w-full h-full pointer-events-none z-15"
       />
 
-      {/* 3. Subtle Vignette & Studio Lighting Overlay */}
-      <div className="absolute inset-0 pointer-events-none z-10 bg-radial from-transparent via-black/10 to-black/50" />
+      {/* 3. Real-Time AI Feature Reticles Overlay (Eyes, Nose, Mouth HUD) */}
+      {!isFullscreen && (
+        <FaceFeaturesReticlesOverlay
+          features={detectedFeatures}
+          detected={isFaceDetected}
+          visible={showReticles}
+          width={dimensions.width}
+          height={dimensions.height}
+        />
+      )}
+
+      {/* 4. Subtle Studio Vignette Overlay */}
+      <div className="absolute inset-0 pointer-events-none z-10 bg-radial from-transparent via-black/15 to-black/60" />
 
       {/* ------------------------------------------------------------------ */}
-      {/* ALL HUD OVERLAYS & CONTROLS (COMPLETELY HIDDEN IN FULLSCREEN MODE) */}
-      {/* When in Fullscreen: ZERO text, ZERO icons, ONLY video + 3D filter  */}
+      {/* HUD OVERLAYS & MODERN CONTROLS (COMPLETELY HIDDEN IN FULLSCREEN)  */}
       {/* ------------------------------------------------------------------ */}
       {!isFullscreen && (
         <>
-          {/* TOP STATUS BAR: LIVE + 12.5K + Active Filter Badge + Fullscreen */}
-          <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between text-xs font-medium">
-            {/* Left: • LIVE + 👁 12.5K Pills + Active Filter */}
+          {/* TOP STATUS BAR: Live Pill + AI Feature Detection Status + Quick Toggles */}
+          <div className="absolute top-3 left-3 right-3 z-25 flex items-center justify-between pointer-events-auto">
+            {/* Left: Live Badge & Active Filter */}
             <div className="flex items-center gap-2">
-              {/* • LIVE Pill */}
-              <div className="flex items-center gap-1.5 px-3 py-1 bg-[#ff1744] text-white rounded-full font-bold tracking-wider uppercase text-[11px] shadow-lg shadow-red-900/50">
-                <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-full font-bold uppercase text-[10px] tracking-wider shadow-lg shadow-red-950/60">
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                 <span>LIVE</span>
               </div>
 
-              {/* 👁 12.5K Viewer Counter Pill */}
-              <div className="flex items-center gap-1.5 px-3 py-1 bg-black/60 border border-white/10 text-white rounded-full font-semibold text-[11px] backdrop-blur-md shadow-md">
-                <Eye className="w-3.5 h-3.5 text-slate-300" />
-                <span>12.5K</span>
+              <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-slate-950/70 border border-white/10 text-slate-200 rounded-full text-[11px] backdrop-blur-md">
+                <Eye className="w-3.5 h-3.5 text-slate-400" />
+                <span className="font-mono font-medium">12.5K</span>
               </div>
 
-              {/* Active Filter Pill */}
-              {activeFilterId && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-purple-900/80 text-purple-200 border border-purple-500/40 rounded-full backdrop-blur-md shadow-sm">
-                  <Sparkles className="w-3.5 h-3.5 text-purple-300" />
-                  <span className="font-semibold text-[11px]">
-                    {allFilters.find((f) => f.id === activeFilterId)?.nameEnglish}
-                  </span>
-                </div>
-              )}
-
-              {/* 3D Shaded Mesh Active Pill */}
-              {settings.show3DShadedMesh && (
-                <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-cyan-950/80 border border-cyan-400/80 text-cyan-200 rounded-full font-bold text-[11px] shadow-[0_0_12px_rgba(6,182,212,0.4)] backdrop-blur-md">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                  <span>3D SHADED MESH</span>
+              {activeFilter && (
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-purple-950/80 text-purple-200 border border-purple-500/50 rounded-full backdrop-blur-md shadow-md animate-in fade-in duration-200">
+                  <span className="text-sm">{activeFilter.icon}</span>
+                  <span className="font-bold text-[11px] text-white">{activeFilter.nameEnglish}</span>
                 </div>
               )}
             </div>
 
-            {/* Right: Fullscreen Button */}
+            {/* Center: Live AI Feature Lock Status Pill */}
+            <div className="hidden md:flex items-center gap-2 px-3.5 py-1 bg-black/65 border border-cyan-500/30 rounded-full backdrop-blur-xl shadow-lg">
+              {isFaceDetected && detectedFeatures?.allLocked ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" />
+                  <span className="text-[11px] font-bold text-emerald-300 font-mono tracking-wide">
+                    AI LOCKED:
+                  </span>
+                  <span className="text-[10px] text-cyan-200 font-mono flex items-center gap-1.5">
+                    <span>👁 Eyes 100%</span>
+                    <span className="text-slate-500">•</span>
+                    <span>👃 Nose 100%</span>
+                    <span className="text-slate-500">•</span>
+                    <span>👄 Mouth 100%</span>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                  <span className="text-[11px] font-semibold text-amber-300 font-mono">
+                    ACQUIRING FACIAL FEATURES...
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Right: Quick Action Buttons (Reticles, 3D Mesh, Fullscreen) */}
             <div className="flex items-center gap-2">
+              {/* Feature Reticles Toggle */}
+              <button
+                onClick={() => onUpdateSettings({ showFeatureReticles: !showReticles })}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-xs font-semibold backdrop-blur-md transition-all active:scale-95 ${
+                  showReticles
+                    ? 'bg-cyan-950/80 border-cyan-400/80 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.4)]'
+                    : 'bg-black/50 border-white/15 text-slate-400 hover:text-white'
+                }`}
+                title="Toggle Eye, Nose, Mouth HUD Reticles"
+              >
+                <Crosshair className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="hidden sm:inline">Reticles</span>
+              </button>
+
+              {/* 3D Shaded Mesh Toggle */}
+              <button
+                onClick={() => onUpdateSettings({ show3DShadedMesh: !settings.show3DShadedMesh })}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-xs font-semibold backdrop-blur-md transition-all active:scale-95 ${
+                  settings.show3DShadedMesh
+                    ? 'bg-purple-950/80 border-purple-400/80 text-purple-200 shadow-[0_0_12px_rgba(168,85,247,0.4)]'
+                    : 'bg-black/50 border-white/15 text-slate-400 hover:text-white'
+                }`}
+                title="Toggle 3D Shaded Mesh Topology"
+              >
+                <Layers className="w-3.5 h-3.5 text-purple-400" />
+                <span className="hidden sm:inline">3D Mesh</span>
+              </button>
+
+              {/* Fullscreen Button */}
               <button
                 onClick={onToggleFullscreen}
-                className="w-9 h-9 rounded-full bg-black/60 border border-white/15 hover:border-purple-500 text-white flex items-center justify-center transition-all backdrop-blur-md shadow-md active:scale-95"
-                title="Fullscreen Mode (Hide all UI, Filter Only)"
-                aria-label="Toggle Fullscreen"
+                className="w-8 h-8 rounded-full bg-black/60 border border-white/20 hover:border-purple-400 text-white flex items-center justify-center backdrop-blur-md shadow-md transition-all active:scale-95"
+                title="Pure Fullscreen Mode (Mask Only)"
               >
-                <Maximize2 className="w-4 h-4 text-white" />
+                <Maximize2 className="w-3.5 h-3.5 text-white" />
               </button>
             </div>
           </div>
 
-          {/* CATEGORY TABS: 🐾 የዱር እንስሳት vs 🎭 የሲኒማ ጭምብሎች */}
-          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 flex items-center bg-black/65 border border-purple-500/40 rounded-full p-1 backdrop-blur-md shadow-xl max-w-[95vw]">
+          {/* ------------------------------------------------------------- */}
+          {/* MODERN BOTTOM FLOATING AR FILTER CAROUSEL DOCK                */}
+          {/* ------------------------------------------------------------- */}
+          <div className="absolute bottom-4 left-0 right-0 z-25 flex flex-col items-center pointer-events-auto px-4 max-w-4xl mx-auto">
+            {/* Dock Collapse Toggle Pill */}
             <button
-              onClick={() => setFilterCategory('animals')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all ${
-                filterCategory === 'animals'
-                  ? 'bg-gradient-to-r from-purple-600 to-amber-600 text-white shadow-md glow-purple-sm'
-                  : 'text-slate-300 hover:text-white'
-              }`}
+              onClick={() => setIsDockCollapsed((prev) => !prev)}
+              className="flex items-center gap-1 px-3 py-0.5 mb-1.5 rounded-full bg-black/60 hover:bg-black/80 border border-white/10 text-[11px] text-slate-300 hover:text-white backdrop-blur-md transition-all shadow-md active:scale-95"
             >
-              <span>🐾 የዱር እንስሳት</span>
-              <span className="hidden sm:inline">(8 Animals)</span>
+              <span>{isDockCollapsed ? 'Filters Carousel (16)' : 'Hide Filters'}</span>
+              {isDockCollapsed ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             </button>
-            <button
-              onClick={() => setFilterCategory('film_characters')}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all ${
-                filterCategory === 'film_characters'
-                  ? 'bg-gradient-to-r from-cyan-600 to-purple-600 text-white shadow-md glow-purple-sm'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <span>🎭 የሲኒማ ጭምብሎች</span>
-              <span className="hidden sm:inline">(8 Cinema Masks)</span>
-            </button>
-          </div>
 
-          {/* LEFT COLUMN: 4 Pinned Character Masks (Click-again unselects) */}
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2.5">
-            {leftFilters.map((filter) => {
-              const isSelected = activeFilterId === filter.id;
-              return (
-                <button
-                  key={filter.id}
-                  onClick={() => handleFilterClick(filter.id)}
-                  className={`group relative flex items-center justify-center w-12 h-12 rounded-xl transition-all duration-200 ${
-                    isSelected
-                      ? 'bg-purple-600/90 border-2 border-cyan-300 text-white shadow-lg shadow-purple-900/60 scale-110'
-                      : 'bg-slate-900/80 hover:bg-slate-800/90 border border-purple-500/30 text-slate-200 backdrop-blur-md hover:scale-105'
-                  }`}
-                  title={`${filter.nameEnglish} - Tap again to unselect`}
-                  aria-label={`Select ${filter.nameEnglish} mask`}
-                >
-                  <span className="text-xl">{filter.icon}</span>
+            {/* Filter Dock Container */}
+            {!isDockCollapsed && (
+              <div className="w-full bg-[#0b0718]/90 border border-purple-500/30 rounded-2xl p-2.5 backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.7)] flex flex-col gap-2">
+                {/* Category Switcher Tabs */}
+                <div className="flex items-center justify-between px-1">
+                  <div className="flex items-center gap-1.5 bg-black/50 p-0.5 rounded-xl border border-white/5">
+                    <button
+                      onClick={() => setFilterCategory('film_characters')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                        filterCategory === 'film_characters'
+                          ? 'bg-gradient-to-r from-cyan-600 to-purple-600 text-white shadow-md'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <span>🎭 የሲኒማ ጭምብሎች</span>
+                      <span className="text-[10px] opacity-75 ml-1">(8)</span>
+                    </button>
 
-                  {/* Tooltip on hover */}
-                  <div className="absolute left-14 px-2.5 py-1.5 bg-[#0e0a1a]/95 border border-purple-500/40 rounded-xl text-xs whitespace-nowrap text-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-2xl backdrop-blur-md flex flex-col z-30">
-                    <span className="font-bold text-cyan-300">{filter.nameEnglish}</span>
-                    <span className="text-[11px] text-purple-200">{filter.nameAmharic}</span>
-                    {filter.actorOrOrigin && (
-                      <span className="text-[10px] text-slate-400 font-mono mt-0.5">{filter.actorOrOrigin}</span>
-                    )}
+                    <button
+                      onClick={() => setFilterCategory('animals')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                        filterCategory === 'animals'
+                          ? 'bg-gradient-to-r from-purple-600 to-amber-600 text-white shadow-md'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <span>🦁 የኢትዮጵያ ዱር አራዊት</span>
+                      <span className="text-[10px] opacity-75 ml-1">(8)</span>
+                    </button>
                   </div>
-                </button>
-              );
-            })}
-          </div>
 
-          {/* RIGHT COLUMN: 4 Pinned Character Masks (Click-again unselects) */}
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2.5">
-            {rightFilters.map((filter) => {
-              const isSelected = activeFilterId === filter.id;
-              return (
-                <button
-                  key={filter.id}
-                  onClick={() => handleFilterClick(filter.id)}
-                  className={`group relative flex items-center justify-center w-12 h-12 rounded-xl transition-all duration-200 ${
-                    isSelected
-                      ? 'bg-purple-600/90 border-2 border-cyan-300 text-white shadow-lg shadow-purple-900/60 scale-110'
-                      : 'bg-slate-900/80 hover:bg-slate-800/90 border border-purple-500/30 text-slate-200 backdrop-blur-md hover:scale-105'
-                  }`}
-                  title={`${filter.nameEnglish} - Tap again to unselect`}
-                  aria-label={`Select ${filter.nameEnglish} mask`}
-                >
-                  <span className="text-xl">{filter.icon}</span>
+                  {activeFilterId && (
+                    <button
+                      onClick={onClearFilter}
+                      className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-rose-400 hover:text-rose-300 bg-rose-950/40 hover:bg-rose-950/70 border border-rose-500/30 rounded-xl transition-all"
+                    >
+                      <XCircle className="w-3 h-3" />
+                      <span>Clear</span>
+                    </button>
+                  )}
+                </div>
 
-                  {/* Tooltip on hover */}
-                  <div className="absolute right-14 px-2.5 py-1.5 bg-[#0e0a1a]/95 border border-purple-500/40 rounded-xl text-xs whitespace-nowrap text-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-2xl backdrop-blur-md flex flex-col items-end z-30">
-                    <span className="font-bold text-cyan-300">{filter.nameEnglish}</span>
-                    <span className="text-[11px] text-purple-200">{filter.nameAmharic}</span>
-                    {filter.actorOrOrigin && (
-                      <span className="text-[10px] text-slate-400 font-mono mt-0.5">{filter.actorOrOrigin}</span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                {/* Horizontal Scrolling Filter Cards Ribbon */}
+                <div className="flex items-center gap-2.5 overflow-x-auto py-1 px-0.5 scrollbar-thin scrollbar-thumb-purple-900">
+                  {/* Option: RAW / NO FILTER */}
+                  <button
+                    onClick={onClearFilter}
+                    className={`flex flex-col items-center justify-center shrink-0 w-16 h-20 rounded-xl transition-all duration-200 border ${
+                      !activeFilterId
+                        ? 'bg-cyan-950/70 border-cyan-400 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.4)] scale-105'
+                        : 'bg-slate-900/60 hover:bg-slate-800/70 border-white/10 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="w-10 h-10 rounded-full border border-dashed border-slate-600 flex items-center justify-center text-xs font-bold mb-1">
+                      RAW
+                    </div>
+                    <span className="text-[10px] font-medium">የጠራ (None)</span>
+                  </button>
 
-          {/* BOTTOM CONTROLS STRIP: Single Fullscreen Button */}
-          <div className="absolute bottom-4 left-0 right-0 z-20 flex items-center justify-center">
-            <button
-              onClick={onToggleFullscreen}
-              className="px-5 py-2.5 rounded-full bg-gradient-to-r from-purple-600 via-fuchsia-600 to-cyan-500 hover:from-purple-500 hover:to-cyan-400 text-white font-bold text-xs shadow-lg glow-purple-sm transition-all active:scale-95 flex items-center gap-2"
-              title="Fullscreen Mode (Full Screen with Filter Only)"
-              aria-label="Enter Fullscreen"
-            >
-              <Maximize2 className="w-4 h-4 text-white" />
-              <span>ሙሉ ማያ (Fullscreen)</span>
-            </button>
+                  {/* Filter Items */}
+                  {currentCategoryFilters.map((f) => {
+                    const isSelected = activeFilterId === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        onClick={() => {
+                          if (isSelected) {
+                            onClearFilter();
+                          } else {
+                            onSelectFilter(f.id);
+                          }
+                        }}
+                        className={`group relative flex flex-col items-center justify-center shrink-0 w-16 h-20 rounded-xl transition-all duration-200 border ${
+                          isSelected
+                            ? 'bg-purple-600/80 border-2 border-cyan-300 text-white shadow-[0_0_16px_rgba(168,85,247,0.6)] scale-105'
+                            : 'bg-slate-900/70 hover:bg-slate-800/80 border-purple-500/20 text-slate-300 hover:scale-102'
+                        }`}
+                        title={`${f.nameEnglish} (${f.nameAmharic}) - Tap to apply/remove`}
+                      >
+                        {/* Circular Avatar / Emoji Icon */}
+                        <div
+                          className={`w-10 h-10 rounded-full flex items-center justify-center text-xl mb-1 transition-all ${
+                            isSelected
+                              ? 'bg-purple-950 ring-2 ring-cyan-300'
+                              : 'bg-slate-950/80 group-hover:bg-slate-900'
+                          }`}
+                        >
+                          {f.icon}
+                        </div>
+
+                        {/* Name Label */}
+                        <span className="text-[10px] font-semibold text-center truncate max-w-[60px] leading-tight">
+                          {f.nameEnglish.split(' ')[0]}
+                        </span>
+                        <span className="text-[9px] text-purple-300 truncate max-w-[60px] leading-tight">
+                          {f.nameAmharic.split(' ')[0]}
+                        </span>
+
+                        {/* Active Selection Indicator */}
+                        {isSelected && (
+                          <div className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-cyan-400 flex items-center justify-center shadow-md">
+                            <CheckCircle2 className="w-3 h-3 text-slate-950" />
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
 
-      {/* 4. PERMISSION / ERROR FALLBACK OVERLAY */}
+      {/* 5. CAMERA PERMISSION ERROR MODAL */}
       {permissionStatus !== 'granted' && (
-        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-slate-950/90 backdrop-blur-lg text-center">
-          <div className="w-16 h-16 rounded-2xl bg-purple-950/60 border border-purple-500/40 flex items-center justify-center text-purple-400 mb-4 shadow-xl glow-purple-sm">
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-slate-950/90 backdrop-blur-xl text-center">
+          <div className="w-16 h-16 rounded-2xl bg-purple-950/60 border border-purple-500/40 flex items-center justify-center text-purple-400 mb-4 shadow-xl">
             <CameraOff className="w-8 h-8" />
           </div>
 
-          <h3 className="text-xl font-bold text-white mb-2">ካሜራ ፈቃድ (Camera Access)</h3>
+          <h3 className="text-xl font-bold text-white mb-2">ካሜራ ፈቃድ (Camera Access Required)</h3>
           <p className="text-sm text-slate-400 max-w-md mb-6 leading-relaxed">
             {errorMessage ||
-              'ጎሪ እና ጅቦ requires camera permission to display your real-time camera preview and project 3D animal masks onto your face.'}
+              'ጎሪ እና ጅቦ requires camera access to detect facial organs (eyes, nose, mouth) and project 3D deformable masks.'}
           </p>
 
           <button
             onClick={() => startCamera(facingMode)}
-            className="px-6 py-3 bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-semibold rounded-xl shadow-lg glow-purple transition-all flex items-center gap-2"
+            className="px-6 py-3 bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 active:scale-95 text-white font-semibold rounded-xl shadow-lg transition-all"
           >
-            <span>ካሜራ አንቃ (Enable Camera)</span>
+            ካሜራ አንቃ (Enable Camera)
           </button>
         </div>
       )}

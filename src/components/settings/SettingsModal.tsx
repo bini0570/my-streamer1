@@ -10,6 +10,7 @@ import {
   Sparkles,
   Smartphone,
   Layers,
+  Crosshair,
 } from 'lucide-react';
 import { AppSettings } from '../../types';
 
@@ -174,6 +175,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <span>100% (Default)</span>
                 <span>135% (Expanded)</span>
               </div>
+            </div>
+          </div>
+
+          {/* 3b. AI Feature Detection Reticles (Eye, Nose, Mouth First) */}
+          <div className="space-y-3">
+            <label className="text-xs font-semibold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Crosshair className="w-3.5 h-3.5" />
+              <span>AI Feature Detection (Eyes, Nose, Mouth)</span>
+            </label>
+
+            <div className="bg-slate-950/50 border border-white/10 rounded-xl p-3.5 flex items-center justify-between">
+              <div className="pr-4">
+                <span className="font-medium text-slate-200">HUD Organ Reticles & 1€ Smoothing</span>
+                <p className="text-[11px] text-slate-400 leading-relaxed mt-0.5">
+                  Detects and locks onto your Left Eye, Right Eye, Nose Tip, and Mouth before drawing the mask. Eliminates micro-jitter with Casiez 1€ dynamic cutoff filtering.
+                </p>
+              </div>
+              <button
+                onClick={() =>
+                  onUpdateSettings({
+                    showFeatureReticles: settings.showFeatureReticles === false ? true : false,
+                  })
+                }
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                  settings.showFeatureReticles !== false
+                    ? 'bg-cyan-500 text-slate-950 shadow-md glow-purple-sm'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                {settings.showFeatureReticles !== false ? 'በርቷል (ON)' : 'ጠፍቷል (OFF)'}
+              </button>
             </div>
           </div>
 

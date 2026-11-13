@@ -1,4 +1,10 @@
-import { FaceLandmarkPoint, FaceTrackingData, FaceCalibrationProfile } from '../types';
+import {
+  FaceLandmarkPoint,
+  FaceTrackingData,
+  FaceCalibrationProfile,
+  DetectedFaceFeatures,
+  DetectedFeaturePoint,
+} from '../types';
 import {
   FACEMESH_TESSELATION,
   FACEMESH_FACE_OVAL,
@@ -8,6 +14,7 @@ import {
   FACEMESH_LEFT_EYEBROW,
   FACEMESH_RIGHT_EYEBROW,
 } from '../data/faceMeshConnections';
+import { OneEuroFilter, OneEuroFilter3D } from './oneEuroFilter';
 
 export {
   FACEMESH_TESSELATION,
@@ -36,9 +43,29 @@ export class FaceTracker {
   // Most recent raw landmarks from MediaPipe (normalized 0..1 in video space)
   private rawNormalizedLandmarks: FaceLandmarkPoint[] | null = null;
 
-  // Offscreen canvas for fast heuristic fallback
+  // Offscreen canvas for fast fallback
   private fallbackCanvas: HTMLCanvasElement;
   private fallbackCtx: CanvasRenderingContext2D | null;
+
+  // 1€ Filters (One Euro Filter) for jitter-free, zero-lag tracking
+  private filterX = new OneEuroFilter(1.2, 0.008);
+  private filterY = new OneEuroFilter(1.2, 0.008);
+  private filterScale = new OneEuroFilter(1.0, 0.006);
+  private filterRotX = new OneEuroFilter(1.5, 0.010);
+  private filterRotY = new OneEuroFilter(1.5, 0.010);
+  private filterRotZ = new OneEuroFilter(1.5, 0.010);
+  private filterMouth = new OneEuroFilter(2.0, 0.015);
+
+  // 1€ Filters for Detected Facial Features (Eyes, Nose, Mouth)
+  private filterLeftEye = new OneEuroFilter3D(1.5, 0.008);
+  private filterRightEye = new OneEuroFilter3D(1.5, 0.008);
+  private filterNose = new OneEuroFilter3D(1.5, 0.008);
+  private filterMouthAnchor = new OneEuroFilter3D(1.8, 0.012);
+  private filterForehead = new OneEuroFilter3D(1.2, 0.006);
+  private filterChin = new OneEuroFilter3D(1.2, 0.006);
+
+  // Cached previous screen landmarks for adaptive smoothing
+  private prevScreenLandmarks: FaceLandmarkPoint[] | null = null;
 
   // Smoothed tracking data
   private smoothedData: FaceTrackingData = {
@@ -57,6 +84,7 @@ export class FaceTracker {
     confidence: 0,
     landmarks: undefined,
     screenLandmarks: undefined,
+    features: undefined,
     calibrationProfile: null,
     isCalibrated: false,
   };
@@ -97,6 +125,7 @@ export class FaceTracker {
       const mesh = new FaceMeshConstructor({
         locateFile: (file: string) => {
           try {
+            // First check relative path to handle subfolders, root, and Android assets
             return new URL(`mediapipe/face_mesh/${file}`, window.location.href).href;
           } catch {
             return `./mediapipe/face_mesh/${file}`;
@@ -127,7 +156,7 @@ export class FaceTracker {
       this.faceMeshInstance = mesh;
       this.isModelReady = true;
     } catch (err) {
-      console.warn('Local MediaPipe FaceMesh load notice, trying CDN:', err);
+      console.warn('Local MediaPipe FaceMesh load notice, trying CDN fallback:', err);
       try {
         const win = window as unknown as { FaceMesh?: unknown };
         if (win.FaceMesh) {
@@ -167,7 +196,7 @@ export class FaceTracker {
             clearInterval(checkInterval);
             resolve(win.FaceMesh);
           }
-        }, 80);
+        }, 60);
         setTimeout(() => {
           clearInterval(checkInterval);
           resolve(win.FaceMesh || null);
@@ -178,19 +207,26 @@ export class FaceTracker {
       // Try local bundle first (instant & offline)
       const script = document.createElement('script');
       script.id = scriptId;
-      script.src = '/mediapipe/face_mesh/face_mesh.js';
+      script.src = './mediapipe/face_mesh/face_mesh.js';
       script.crossOrigin = 'anonymous';
       script.onload = () => {
         resolve(win.FaceMesh || null);
       };
       script.onerror = () => {
-        // Fallback to CDN if local path is unavailable
-        const cdnScript = document.createElement('script');
-        cdnScript.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
-        cdnScript.crossOrigin = 'anonymous';
-        cdnScript.onload = () => resolve(win.FaceMesh || null);
-        cdnScript.onerror = () => resolve(null);
-        document.head.appendChild(cdnScript);
+        // Try root path if relative failed
+        const altScript = document.createElement('script');
+        altScript.src = '/mediapipe/face_mesh/face_mesh.js';
+        altScript.onload = () => resolve(win.FaceMesh || null);
+        altScript.onerror = () => {
+          // Fallback to CDN if local path is unavailable
+          const cdnScript = document.createElement('script');
+          cdnScript.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
+          cdnScript.crossOrigin = 'anonymous';
+          cdnScript.onload = () => resolve(win.FaceMesh || null);
+          cdnScript.onerror = () => resolve(null);
+          document.head.appendChild(cdnScript);
+        };
+        document.head.appendChild(altScript);
       };
       document.head.appendChild(script);
     });
@@ -214,7 +250,7 @@ export class FaceTracker {
 
     // Trigger MediaPipe processing asynchronously if model is ready and not busy
     const now = performance.now();
-    if (this.isModelReady && this.faceMeshInstance && !this.isProcessing && now - this.lastProcessedTime > 30) {
+    if (this.isModelReady && this.faceMeshInstance && !this.isProcessing && now - this.lastProcessedTime > 25) {
       this.isProcessing = true;
       this.lastProcessedTime = now;
       this.faceMeshInstance
@@ -251,8 +287,8 @@ export class FaceTracker {
     if (this.rawNormalizedLandmarks && this.rawNormalizedLandmarks.length >= 468) {
       const raw = this.rawNormalizedLandmarks;
 
-      // Transform normalized video landmarks into screen pixel landmarks
-      const screenLandmarks: FaceLandmarkPoint[] = raw.map((pt) => {
+      // Transform normalized video landmarks into exact screen pixel landmarks
+      const rawScreenLandmarks: FaceLandmarkPoint[] = raw.map((pt) => {
         // Video is mirrored horizontally via CSS scale-x-[-1] for user-facing camera
         const vx = isUserFacing ? 1.0 - pt.x : pt.x;
         const vy = pt.y;
@@ -263,71 +299,71 @@ export class FaceTracker {
         };
       });
 
-      // Key landmarks:
+      // Key landmark references:
       // 234: Left cheek / ear tragus
       // 454: Right cheek / ear tragus
       // 10: Forehead top
       // 152: Chin tip
-      // 168: Nose bridge / glabella (natural center between eyes)
+      // 168: Nose bridge
       // 4: Nose tip
-      // 33: Left eye inner corner
-      // 263: Right eye inner corner
-      // 13: Upper lip center
-      // 14: Lower lip center
+      // 33, 133, 159, 145: Left eye
+      // 263, 362, 386, 374: Right eye
+      // 13, 14, 61, 291: Mouth (inner upper/lower, left/right corners)
 
-      const leftCheek = screenLandmarks[234];
-      const rightCheek = screenLandmarks[454];
-      const forehead = screenLandmarks[10];
-      const chin = screenLandmarks[152];
-      const noseBridge = screenLandmarks[168];
-      const noseTip = screenLandmarks[4];
-      const leftEye = screenLandmarks[33];
-      const rightEye = screenLandmarks[263];
-      const upperLip = screenLandmarks[13];
-      const lowerLip = screenLandmarks[14];
+      const leftCheek = rawScreenLandmarks[234];
+      const rightCheek = rawScreenLandmarks[454];
+      const forehead = rawScreenLandmarks[10];
+      const chin = rawScreenLandmarks[152];
+      const noseBridge = rawScreenLandmarks[168];
+      const noseTip = rawScreenLandmarks[4];
+      const leftEyeInner = rawScreenLandmarks[133];
+      const leftEyeOuter = rawScreenLandmarks[33];
+      const rightEyeInner = rawScreenLandmarks[362];
+      const rightEyeOuter = rawScreenLandmarks[263];
+      const upperLip = rawScreenLandmarks[13];
+      const lowerLip = rawScreenLandmarks[14];
+      const leftMouthCorner = rawScreenLandmarks[61];
+      const rightMouthCorner = rawScreenLandmarks[291];
 
       // Exact pixel measurements of user's face on screen
       const facePixelWidth = Math.hypot(rightCheek.x - leftCheek.x, rightCheek.y - leftCheek.y);
       const facePixelHeight = Math.hypot(chin.x - forehead.x, chin.y - forehead.y);
 
-      // Center point: nose bridge (between eyes)
-      const centerScreenX = (leftCheek.x + rightCheek.x) / 2;
-      const centerScreenY = (forehead.y + chin.y) / 2 * 0.95 + noseBridge.y * 0.05;
+      // Center point: geometric face center
+      const centerScreenX = (leftCheek.x + rightCheek.x) * 0.5;
+      const centerScreenY = (forehead.y + chin.y) * 0.5;
 
       const normX = centerScreenX / containerWidth;
       const normY = centerScreenY / containerHeight;
 
       // Roll: Continuous angle of the eye line in screen space
-      // In mirrored user-facing mode, rightEye (263) appears on screen-left, leftEye (33) on screen-right
-      const screenLeftEye = isUserFacing ? rightEye : leftEye;
-      const screenRightEye = isUserFacing ? leftEye : rightEye;
+      const screenLeftEye = isUserFacing ? rightEyeOuter : leftEyeOuter;
+      const screenRightEye = isUserFacing ? leftEyeOuter : rightEyeOuter;
       const eyeDeltaX = screenRightEye.x - screenLeftEye.x;
       const eyeDeltaY = screenRightEye.y - screenLeftEye.y;
-      const rotationZ = Math.atan2(eyeDeltaY, Math.max(1e-4, eyeDeltaX));
+      const rawRotZ = Math.atan2(eyeDeltaY, Math.max(1e-4, eyeDeltaX));
 
       // Yaw: horizontal shift of nose tip relative to cheek midpoint
-      const cheekMidX = (leftCheek.x + rightCheek.x) / 2;
+      const cheekMidX = (leftCheek.x + rightCheek.x) * 0.5;
       const yawRatio = (noseTip.x - cheekMidX) / Math.max(1, facePixelWidth);
-      const rotationY = yawRatio * 2.2;
+      const rawRotY = yawRatio * 2.2;
 
       // Pitch: vertical shift of nose tip relative to bridge and chin
-      const pitchMidY = (forehead.y + chin.y) / 2;
+      const pitchMidY = (forehead.y + chin.y) * 0.5;
       const pitchRatio = (noseTip.y - pitchMidY) / Math.max(1, facePixelHeight);
-      const rotationX = pitchRatio * 2.0;
+      const rawRotX = pitchRatio * 2.0;
 
       // Mouth openness: vertical distance between inner upper and lower lip
       const lipDist = Math.hypot(lowerLip.x - upperLip.x, lowerLip.y - upperLip.y);
-      const mouthOpenness = Math.min(1.0, Math.max(0, (lipDist / (facePixelHeight * 0.16) - 0.15) * 1.8));
+      const rawMouthOpenness = Math.min(1.0, Math.max(0, (lipDist / (facePixelHeight * 0.16) - 0.15) * 1.8));
 
-      // Calibrated face scale factor relative to container height
+      // Target scale factor
       let targetW = facePixelWidth;
       let targetH = facePixelHeight;
 
-      // If face profile is calibrated, lock to calibrated aspect ratio to prevent random filter sizing
       if (this.calibrationProfile) {
         const cal = this.calibrationProfile;
-        // Scale based on current distance relative to calibrated eye distance
-        const currentEyeDist = Math.hypot(rightEye.x - leftEye.x, rightEye.y - leftEye.y);
+        const currentEyeDist = Math.hypot(rightEyeOuter.x - leftEyeOuter.x, rightEyeOuter.y - leftEyeOuter.y);
         const scaleRatio = currentEyeDist > 0 && cal.eyeDistance > 0 ? currentEyeDist / cal.eyeDistance : 1.0;
         targetW = cal.facePixelWidth * scaleRatio;
         targetH = cal.facePixelHeight * scaleRatio;
@@ -335,34 +371,128 @@ export class FaceTracker {
 
       const targetScale = targetH / (containerHeight * 0.42);
 
-      // ZERO-LAG VELOCITY-ADAPTIVE SMOOTHING:
-      // When user moves quickly or is calibrated, smoothing coefficient jumps to 0.90-0.98 (zero latency, 0ms lag!).
-      // When still, coefficient lowers to 0.6 to eliminate camera sensor micro-jitter.
-      const deltaX = Math.abs(normX - this.smoothedData.x);
-      const deltaY = Math.abs(normY - this.smoothedData.y);
-      const deltaZ = Math.abs(rotationZ - this.smoothedData.rotationZ);
-      const motionVelocity = deltaX * 25 + deltaY * 25 + deltaZ * 8;
+      // -------------------------------------------------------------
+      // 1€ FILTER (ONE EURO FILTER) - Zero Sensor Jitter, Zero Latency
+      // -------------------------------------------------------------
+      const smoothedX = this.filterX.filter(normX, now);
+      const smoothedY = this.filterY.filter(normY, now);
+      const smoothedScale = this.filterScale.filter(targetScale, now);
+      const smoothedRotX = this.filterRotX.filter(rawRotX, now);
+      const smoothedRotY = this.filterRotY.filter(rawRotY, now);
+      const smoothedRotZ = this.filterRotZ.filter(rawRotZ, now);
+      const smoothedMouth = this.filterMouth.filter(rawMouthOpenness, now);
 
-      // Base smooth: if calibrated, tracking is ultra-fast 0.85; if moving fast, up to 0.98!
-      const baseAlpha = this.calibrationProfile ? 0.85 : 0.65;
-      const adaptiveSmooth = Math.min(0.98, Math.max(baseAlpha, baseAlpha + motionVelocity * 0.3));
+      // -------------------------------------------------------------
+      // DETECTED FACIAL FEATURE ANCHORS (Eyes, Nose, Mouth First!)
+      // -------------------------------------------------------------
+      const rawLeftEyeX = (leftEyeOuter.x + leftEyeInner.x) * 0.5;
+      const rawLeftEyeY = (rawScreenLandmarks[159].y + rawScreenLandmarks[145].y) * 0.5;
+      const smoothLeftEye = this.filterLeftEye.filter(rawLeftEyeX, rawLeftEyeY, leftEyeOuter.z || 0, now);
+
+      const rawRightEyeX = (rightEyeOuter.x + rightEyeInner.x) * 0.5;
+      const rawRightEyeY = (rawScreenLandmarks[386].y + rawScreenLandmarks[374].y) * 0.5;
+      const smoothRightEye = this.filterRightEye.filter(rawRightEyeX, rawRightEyeY, rightEyeOuter.z || 0, now);
+
+      const smoothNose = this.filterNose.filter(noseTip.x, noseTip.y, noseTip.z || 0, now);
+
+      const rawMouthX = (leftMouthCorner.x + rightMouthCorner.x) * 0.5;
+      const rawMouthY = (upperLip.y + lowerLip.y) * 0.5;
+      const smoothMouth = this.filterMouthAnchor.filter(rawMouthX, rawMouthY, upperLip.z || 0, now);
+
+      const smoothForehead = this.filterForehead.filter(forehead.x, forehead.y, forehead.z || 0, now);
+      const smoothChin = this.filterChin.filter(chin.x, chin.y, chin.z || 0, now);
+
+      const features: DetectedFaceFeatures = {
+        leftEye: {
+          x: smoothLeftEye.x,
+          y: smoothLeftEye.y,
+          z: smoothLeftEye.z,
+          confidence: 0.99,
+          detected: true,
+          name: 'Left Eye',
+        },
+        rightEye: {
+          x: smoothRightEye.x,
+          y: smoothRightEye.y,
+          z: smoothRightEye.z,
+          confidence: 0.99,
+          detected: true,
+          name: 'Right Eye',
+        },
+        nose: {
+          x: smoothNose.x,
+          y: smoothNose.y,
+          z: smoothNose.z,
+          confidence: 0.99,
+          detected: true,
+          name: 'Nose Tip',
+        },
+        mouth: {
+          x: smoothMouth.x,
+          y: smoothMouth.y,
+          z: smoothMouth.z,
+          confidence: 0.99,
+          detected: true,
+          name: 'Mouth / Lips',
+        },
+        forehead: {
+          x: smoothForehead.x,
+          y: smoothForehead.y,
+          z: smoothForehead.z,
+          confidence: 0.99,
+          detected: true,
+          name: 'Forehead',
+        },
+        chin: {
+          x: smoothChin.x,
+          y: smoothChin.y,
+          z: smoothChin.z,
+          confidence: 0.99,
+          detected: true,
+          name: 'Chin',
+        },
+        allLocked: true,
+      };
+
+      // -------------------------------------------------------------
+      // ADAPTIVE SCREEN LANDMARKS SMOOTHING
+      // -------------------------------------------------------------
+      // Blend landmarks smoothly without micro-jitter
+      const finalScreenLandmarks: FaceLandmarkPoint[] = new Array(468);
+      const prev = this.prevScreenLandmarks;
+      const landmarkAlpha = 0.88; // Fast 88% responsive landmark follow
+
+      for (let i = 0; i < 468; i++) {
+        const curr = rawScreenLandmarks[i];
+        if (prev && prev[i]) {
+          finalScreenLandmarks[i] = {
+            x: prev[i].x + (curr.x - prev[i].x) * landmarkAlpha,
+            y: prev[i].y + (curr.y - prev[i].y) * landmarkAlpha,
+            z: prev[i].z !== undefined && curr.z !== undefined ? prev[i].z! + (curr.z - prev[i].z!) * landmarkAlpha : curr.z,
+          };
+        } else {
+          finalScreenLandmarks[i] = curr;
+        }
+      }
+      this.prevScreenLandmarks = finalScreenLandmarks;
 
       this.smoothedData = {
         detected: true,
-        x: this.smoothedData.x + (normX - this.smoothedData.x) * adaptiveSmooth,
-        y: this.smoothedData.y + (normY - this.smoothedData.y) * adaptiveSmooth,
-        scale: this.smoothedData.scale + (targetScale - this.smoothedData.scale) * adaptiveSmooth,
-        rotationX: this.smoothedData.rotationX + (rotationX - this.smoothedData.rotationX) * adaptiveSmooth,
-        rotationY: this.smoothedData.rotationY + (rotationY - this.smoothedData.rotationY) * adaptiveSmooth,
-        rotationZ: this.smoothedData.rotationZ + (rotationZ - this.smoothedData.rotationZ) * adaptiveSmooth,
-        mouthOpenness: this.smoothedData.mouthOpenness + (mouthOpenness - this.smoothedData.mouthOpenness) * 0.75,
+        x: smoothedX,
+        y: smoothedY,
+        scale: smoothedScale,
+        rotationX: smoothedRotX,
+        rotationY: smoothedRotY,
+        rotationZ: smoothedRotZ,
+        mouthOpenness: smoothedMouth,
         eyeLeftOpenness: 1.0,
         eyeRightOpenness: 1.0,
-        facePixelWidth: this.smoothedData.facePixelWidth + (targetW - this.smoothedData.facePixelWidth) * adaptiveSmooth,
-        facePixelHeight: this.smoothedData.facePixelHeight + (targetH - this.smoothedData.facePixelHeight) * adaptiveSmooth,
-        confidence: 0.98,
+        facePixelWidth: targetW,
+        facePixelHeight: targetH,
+        confidence: 0.99,
         landmarks: raw,
-        screenLandmarks,
+        screenLandmarks: finalScreenLandmarks,
+        features,
         calibrationProfile: this.calibrationProfile,
         isCalibrated: !!this.calibrationProfile,
       };
@@ -437,11 +567,8 @@ export class FaceTracker {
       const normY = screenY / containerHeight;
       const targetScale = screenFaceH / (containerHeight * 0.42);
 
-      // Generate synthetic 468-point face mesh template for smooth 3D rendering
       const syntheticScreenLandmarks: FaceLandmarkPoint[] = [];
-      const numPts = 468;
-      for (let i = 0; i < numPts; i++) {
-        // Anatomical distribution based on index
+      for (let i = 0; i < 468; i++) {
         const angle = (i / 468) * Math.PI * 2 * 3;
         const radiusFactor = 0.2 + 0.3 * Math.sin(i * 0.4);
         const rx = screenFaceW * radiusFactor * Math.cos(angle);
@@ -452,17 +579,32 @@ export class FaceTracker {
           z: 0,
         });
       }
-      // Explicitly set key anatomical landmarks in synthetic fallback
-      syntheticScreenLandmarks[168] = { x: screenX, y: screenY - screenFaceH * 0.05, z: 0 }; // Nose bridge
-      syntheticScreenLandmarks[4] = { x: screenX, y: screenY + screenFaceH * 0.05, z: 0.1 }; // Nose tip
-      syntheticScreenLandmarks[10] = { x: screenX, y: screenY - screenFaceH * 0.45, z: 0 }; // Forehead
-      syntheticScreenLandmarks[152] = { x: screenX, y: screenY + screenFaceH * 0.45, z: 0 }; // Chin
-      syntheticScreenLandmarks[234] = { x: screenX - screenFaceW * 0.45, y: screenY, z: -0.1 }; // Left ear
-      syntheticScreenLandmarks[454] = { x: screenX + screenFaceW * 0.45, y: screenY, z: -0.1 }; // Right ear
-      syntheticScreenLandmarks[33] = { x: screenX - screenFaceW * 0.2, y: screenY - screenFaceH * 0.1, z: 0 }; // Left eye
-      syntheticScreenLandmarks[263] = { x: screenX + screenFaceW * 0.2, y: screenY - screenFaceH * 0.1, z: 0 }; // Right eye
-      syntheticScreenLandmarks[13] = { x: screenX, y: screenY + screenFaceH * 0.2, z: 0 }; // Upper lip
-      syntheticScreenLandmarks[14] = { x: screenX, y: screenY + screenFaceH * 0.25, z: 0 }; // Lower lip
+
+      const leftEyePt = { x: screenX - screenFaceW * 0.2, y: screenY - screenFaceH * 0.1 };
+      const rightEyePt = { x: screenX + screenFaceW * 0.2, y: screenY - screenFaceH * 0.1 };
+      const nosePt = { x: screenX, y: screenY + screenFaceH * 0.05 };
+      const mouthPt = { x: screenX, y: screenY + screenFaceH * 0.22 };
+
+      syntheticScreenLandmarks[168] = { x: screenX, y: screenY - screenFaceH * 0.05, z: 0 };
+      syntheticScreenLandmarks[4] = { x: nosePt.x, y: nosePt.y, z: 0.1 };
+      syntheticScreenLandmarks[10] = { x: screenX, y: screenY - screenFaceH * 0.45, z: 0 };
+      syntheticScreenLandmarks[152] = { x: screenX, y: screenY + screenFaceH * 0.45, z: 0 };
+      syntheticScreenLandmarks[234] = { x: screenX - screenFaceW * 0.45, y: screenY, z: -0.1 };
+      syntheticScreenLandmarks[454] = { x: screenX + screenFaceW * 0.45, y: screenY, z: -0.1 };
+      syntheticScreenLandmarks[33] = leftEyePt;
+      syntheticScreenLandmarks[263] = rightEyePt;
+      syntheticScreenLandmarks[13] = mouthPt;
+      syntheticScreenLandmarks[14] = { x: screenX, y: screenY + screenFaceH * 0.26, z: 0 };
+
+      const fallbackFeatures: DetectedFaceFeatures = {
+        leftEye: { ...leftEyePt, confidence: 0.8, detected: true, name: 'Left Eye' },
+        rightEye: { ...rightEyePt, confidence: 0.8, detected: true, name: 'Right Eye' },
+        nose: { ...nosePt, confidence: 0.8, detected: true, name: 'Nose Tip' },
+        mouth: { ...mouthPt, confidence: 0.8, detected: true, name: 'Mouth / Lips' },
+        forehead: { x: screenX, y: screenY - screenFaceH * 0.45, confidence: 0.8, detected: true, name: 'Forehead' },
+        chin: { x: screenX, y: screenY + screenFaceH * 0.45, confidence: 0.8, detected: true, name: 'Chin' },
+        allLocked: true,
+      };
 
       this.smoothedData = {
         detected: true,
@@ -477,13 +619,15 @@ export class FaceTracker {
         eyeRightOpenness: 1.0,
         facePixelWidth: screenFaceW,
         facePixelHeight: screenFaceH,
-        confidence: 0.75,
+        confidence: 0.80,
         screenLandmarks: syntheticScreenLandmarks,
+        features: fallbackFeatures,
       };
     } else {
       this.smoothedData.detected = false;
       this.smoothedData.confidence = 0;
       this.smoothedData.screenLandmarks = undefined;
+      this.smoothedData.features = undefined;
     }
 
     return this.smoothedData;

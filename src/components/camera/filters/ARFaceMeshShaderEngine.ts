@@ -1008,14 +1008,14 @@ export class ARFaceMeshShaderEngine {
       const facePixelHeight = Math.hypot(chin.x - forehead.x, chin.y - forehead.y) || 220;
 
       // Forehead lift: extends upper cranial vertices upward so the mesh completely covers forehead and hairline
-      const foreheadLift = facePixelHeight * 0.14; // 14% face height lift upward
+      const foreheadLift = facePixelHeight * 0.16;
 
       const fitScale = this.maskFitScale; // 0.85 to 1.35
       const vSign = this.flipVertical ? -1 : 1;
       const orientationMultiplier = vSign;
 
       // 2. 3D Accessories (horns, bat ears, feline ears, hair locks) attached at top of head
-      const topForeheadY = faceCenterY + (forehead.y - faceCenterY) * fitScale - foreheadLift * 1.15;
+      const topForeheadY = forehead.y - foreheadLift;
       const accWorldX = (faceCenterX / canvasW - 0.5) * planeWidthAtDistance;
       const accWorldY = -vSign * (topForeheadY / canvasH - 0.5) * planeHeightAtDistance;
 
@@ -1027,19 +1027,51 @@ export class ARFaceMeshShaderEngine {
       const accessoryScale = Math.max(0.4, Math.min(2.2, (facePixelHeight * worldUnitsPerPixel / 2.2) * fitScale));
       this.accessoryGroup.scale.set(accessoryScale, accessoryScale * orientationMultiplier, accessoryScale);
 
-      // 3a. Deform 468 Face Vertices with 1:1 screen projection and forehead concealment
+      // Anatomical Feature Anchor Sets
+      // Eyes, Nose, and Mouth landmarks MUST NEVER be shifted away from real facial organs!
+      const EYE_NOSE_MOUTH_VERTICES = new Set([
+        // Left eye & eyebrow
+        33, 7, 163, 144, 145, 153, 154, 155, 133, 246, 161, 160, 159, 158, 157, 173,
+        46, 53, 52, 65, 55, 70, 63, 105, 66, 107,
+        // Right eye & eyebrow
+        263, 249, 390, 373, 374, 380, 381, 382, 362, 466, 388, 387, 386, 385, 384, 398,
+        276, 283, 282, 295, 285, 300, 293, 334, 296, 336,
+        // Nose bridge, tip, nostrils
+        168, 6, 197, 195, 5, 4, 1, 19, 94, 2, 98, 97, 240, 75, 327, 326, 460, 305, 455,
+        // Lips & mouth interior
+        61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 185, 40, 39, 37, 0, 267, 269, 270, 409,
+        78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 191, 80, 81, 82, 13, 312, 311, 310, 415,
+      ]);
+
+      // Cranial hairline rim vertices (only these are extruded upward to cover the forehead)
+      const FOREHEAD_HAIRLINE_RIM = new Set([
+        10, 338, 297, 332, 284, 251, 389, 356, 109, 67, 103, 54, 21, 162, 127, 151, 9, 8
+      ]);
+
+      // 3a. Deform 468 Face Vertices with 1:1 screen projection anchored to real features
       for (let i = 0; i < 468; i++) {
         const pt = landmarks[i];
         if (!pt) continue;
 
-        // Scale relative to true face center
-        let screenX = faceCenterX + (pt.x - faceCenterX) * fitScale;
-        let screenY = faceCenterY + (pt.y - faceCenterY) * fitScale;
+        let screenX = pt.x;
+        let screenY = pt.y;
 
-        // Smoothly lift forehead and upper cranial region upward to fully conceal real forehead and hairline
-        if (pt.y < faceCenterY) {
-          const upperFactor = Math.min(1.0, Math.max(0.0, (faceCenterY - pt.y) / (facePixelHeight * 0.48)));
-          screenY -= foreheadLift * Math.pow(upperFactor, 1.15);
+        // Decoupled feature scaling: Eyes, Nose, and Mouth stay 1:1 on the user's face!
+        // Outer cowl/silhouette expands outward only when maskFitScale is adjusted.
+        if (Math.abs(fitScale - 1.0) > 0.01) {
+          const distNorm = Math.hypot(pt.x - faceCenterX, pt.y - faceCenterY) / Math.max(1, facePixelWidth * 0.5);
+          const isOrgan = EYE_NOSE_MOUTH_VERTICES.has(i);
+          const outerWeight = isOrgan ? 0.0 : Math.min(1.0, Math.max(0.0, (distNorm - 0.45) * 1.8));
+          const scaleFactor = 1.0 + (fitScale - 1.0) * outerWeight;
+
+          screenX = faceCenterX + (pt.x - faceCenterX) * scaleFactor;
+          screenY = faceCenterY + (pt.y - faceCenterY) * scaleFactor;
+        }
+
+        // Forehead Coverage: Only lift the upper cranial/hairline rim vertices!
+        if (FOREHEAD_HAIRLINE_RIM.has(i)) {
+          const rimFactor = Math.min(1.0, Math.max(0.4, (faceCenterY - pt.y) / (facePixelHeight * 0.45)));
+          screenY -= foreheadLift * rimFactor;
         }
 
         const localX = (screenX / canvasW - 0.5) * planeWidthAtDistance;
@@ -1047,13 +1079,13 @@ export class ARFaceMeshShaderEngine {
         let localZ = (pt.z !== undefined ? -pt.z * worldUnitsPerPixel * 0.9 * fitScale : 0);
 
         // Anatomical depth enhancement
-        if (i === 4) localZ += 0.25; // Nose tip
-        if (i === 168) localZ += 0.10; // Nose bridge
+        if (i === 4) localZ += 0.28; // Nose tip
+        if (i === 168) localZ += 0.12; // Nose bridge
         if (i === 152) localZ += 0.08; // Chin
 
         // Mouth jaw opening deformation
         if (i >= 13 && i <= 18) {
-          localY -= vSign * tracking.mouthOpenness * 0.20 * mouthSensitivity;
+          localY -= vSign * tracking.mouthOpenness * 0.22 * mouthSensitivity;
         }
 
         positions[i * 3 + 0] = localX;
@@ -1103,11 +1135,11 @@ export class ARFaceMeshShaderEngine {
 
       // 4c. Update Anatomical Feature Uniforms so character mask fits the user's face perfectly!
       if (this.faceMeshMaterial) {
-        const lEyePt = landmarks[33] || landmarks[159] || { x: faceCenterX - 30, y: faceCenterY - 15 };
-        const rEyePt = landmarks[263] || landmarks[386] || { x: faceCenterX + 30, y: faceCenterY - 15 };
-        const nosePt = landmarks[4] || { x: faceCenterX, y: faceCenterY + 10 };
-        const mouthPt = landmarks[13] || { x: faceCenterX, y: faceCenterY + 40 };
-        const chinPt = landmarks[152] || { x: faceCenterX, y: faceCenterY + 70 };
+        const lEyePt = tracking.features?.leftEye || landmarks[33] || { x: faceCenterX - 30, y: faceCenterY - 15 };
+        const rEyePt = tracking.features?.rightEye || landmarks[263] || { x: faceCenterX + 30, y: faceCenterY - 15 };
+        const nosePt = tracking.features?.nose || landmarks[4] || { x: faceCenterX, y: faceCenterY + 10 };
+        const mouthPt = tracking.features?.mouth || landmarks[13] || { x: faceCenterX, y: faceCenterY + 40 };
+        const chinPt = tracking.features?.chin || landmarks[152] || { x: faceCenterX, y: faceCenterY + 70 };
 
         const toUv = (pt: { x: number; y: number }) => {
           const lx = (pt.x - faceCenterX) / (facePixelWidth * 0.5);

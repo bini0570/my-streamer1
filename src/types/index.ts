@@ -54,6 +54,8 @@ export interface AppSettings {
   maskFitScale: number; // 0.85 to 1.35 (Mask & Mesh Fit)
   show3DShadedMesh: boolean; // 3D Shaded Mesh
   meshShadeOpacity: number; // 0.20 to 1.00 (Mesh Shade Transparency / Opacity)
+  showFeatureReticles?: boolean; // Real-time Eye, Nose, Mouth detection reticles
+  smoothingFilter?: 'one_euro' | 'exponential'; // Industry standard 1€ filter
   filterSensitivity?: number; // legacy optional
   mouthTrackingSensitivity?: number; // legacy optional
   showFaceMeshDebug?: boolean; // legacy optional
@@ -64,6 +66,25 @@ export interface FaceLandmarkPoint {
   x: number;
   y: number;
   z?: number;
+}
+
+export interface DetectedFeaturePoint {
+  x: number; // screen pixel x
+  y: number; // screen pixel y
+  z?: number;
+  confidence: number;
+  detected: boolean;
+  name: string;
+}
+
+export interface DetectedFaceFeatures {
+  leftEye: DetectedFeaturePoint;
+  rightEye: DetectedFeaturePoint;
+  nose: DetectedFeaturePoint;
+  mouth: DetectedFeaturePoint;
+  forehead: DetectedFeaturePoint;
+  chin: DetectedFeaturePoint;
+  allLocked: boolean;
 }
 
 export interface FaceTrackingData {
@@ -82,6 +103,7 @@ export interface FaceTrackingData {
   confidence: number; // 0..1
   landmarks?: FaceLandmarkPoint[]; // 468 MediaPipe normalized mesh points
   screenLandmarks?: FaceLandmarkPoint[]; // Transformed directly into canvas pixel space
+  features?: DetectedFaceFeatures; // Exact detected Eye, Nose, Mouth feature coordinates
   calibrationProfile?: FaceCalibrationProfile | null;
   isCalibrated?: boolean;
 }

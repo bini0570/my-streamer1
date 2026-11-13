@@ -21,6 +21,7 @@ export default function App() {
     maskFitScale: 1.0,
     show3DShadedMesh: false,
     meshShadeOpacity: 1.0,
+    showFeatureReticles: true,
   });
 
   // Camera & AR Filters State (Defaults to iconic Joker Film Character Mask)
