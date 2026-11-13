@@ -1,51 +1,42 @@
 import * as ort from 'onnxruntime-web';
-import { COCO_CLASSES, getCocoClass } from '../data/cocoClasses';
-import { BoundingBox, RawDetection } from '../types';
+import { getCocoClass } from '../data/cocoClasses.js';
 
 export class YoloDetector {
-  private session: ort.InferenceSession | null = null;
-  private cachedModelBuffer: ArrayBuffer | null = null;
-  private isLoaded: boolean = false;
-  private isInferencing: boolean = false;
-  private engineMode: 'webgl' | 'wasm' | 'cpu' = 'webgl';
-
-  // Fixed input dimensions for YOLO11n
-  private readonly inputWidth: number = 640;
-  private readonly inputHeight: number = 640;
-
-  // Offscreen canvas for preprocessing
-  private offscreenCanvas: HTMLCanvasElement;
-  private offscreenCtx: CanvasRenderingContext2D;
-
-  // Pre-allocated Float32Array to avoid garbage collection churn
-  private preallocatedTensorData: Float32Array;
-
   constructor() {
+    this.session = null;
+    this.cachedModelBuffer = null;
+    this.isLoaded = false;
+    this.isInferencing = false;
+    this.engineMode = 'webgl';
+
+    // Fixed input dimensions for YOLO11n
+    this.inputWidth = 640;
+    this.inputHeight = 640;
+
+    // Offscreen canvas for preprocessing
     this.offscreenCanvas = document.createElement('canvas');
     this.offscreenCanvas.width = this.inputWidth;
     this.offscreenCanvas.height = this.inputHeight;
-    const ctx = this.offscreenCanvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) {
-      throw new Error('Failed to create offscreen canvas 2D context');
-    }
-    this.offscreenCtx = ctx;
+    this.offscreenCtx = this.offscreenCanvas.getContext('2d', { willReadFrequently: true });
 
-    // 1 batch * 3 channels * 640 * 640 pixels
+    // Pre-allocated Float32Array to avoid garbage collection frame drops
     this.preallocatedTensorData = new Float32Array(1 * 3 * this.inputWidth * this.inputHeight);
   }
 
-  public async loadModel(onProgress?: (msg: string) => void): Promise<boolean> {
+  async loadModel(onProgress) {
     if (this.isLoaded && this.session) return true;
 
     try {
-      onProgress?.('Configuring ONNX Runtime engine...');
+      onProgress?.('Configuring AI Neural Engine...');
 
-      // Configure ONNX runtime environment
-      ort.env.wasm.numThreads = 1; // Safe for WebViews without COOP/COEP SharedArrayBuffer
+      // Single thread prevents SharedArrayBuffer restrictions on Android WebViews
+      ort.env.wasm.numThreads = 1;
 
-      onProgress?.('Loading YOLO11n neural weights...');
+      onProgress?.('Loading YOLO11n weights...');
 
-      // Candidate model URLs for local dev, vite preview, and Android WebView asset loader
+      const currentDir = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
+      const basePath = import.meta.env.BASE_URL || './';
+
       const candidateUrls = [
         new URL('models/yolo11n.onnx', currentDir).href,
         `${basePath}models/yolo11n.onnx`,
@@ -53,9 +44,8 @@ export class YoloDetector {
         'models/yolo11n.onnx',
       ];
 
-      let modelSource: ArrayBuffer | string = candidateUrls[0];
+      let modelSource = candidateUrls[0];
 
-      // Try fetching as ArrayBuffer first to verify file integrity and support direct byte loading
       for (const url of candidateUrls) {
         try {
           const res = await fetch(url);
@@ -64,7 +54,7 @@ export class YoloDetector {
             if (buf.byteLength > 5000000) {
               this.cachedModelBuffer = buf;
               modelSource = buf;
-              console.log(`[YoloDetector] Loaded ${buf.byteLength} bytes from ${url}`);
+              console.log(`[YoloDetector] Verified model binary (${(buf.byteLength / 1024 / 1024).toFixed(1)} MB)`);
               break;
             }
           }
@@ -73,9 +63,9 @@ export class YoloDetector {
         }
       }
 
-      onProgress?.('Initializing Neural Acceleration...');
+      onProgress?.('Initializing GPU Shaders...');
 
-      // Try WebGL first for GPU hardware acceleration
+      // Try WebGL GPU acceleration first
       try {
         this.session = await ort.InferenceSession.create(modelSource, {
           executionProviders: ['webgl'],
@@ -84,7 +74,7 @@ export class YoloDetector {
         this.engineMode = 'webgl';
         console.log('[YoloDetector] Initialized with WebGL GPU acceleration');
       } catch (webglErr) {
-        console.warn('[YoloDetector] WebGL initialization failed, falling back to WASM:', webglErr);
+        console.warn('[YoloDetector] WebGL initialization failed, switching to WASM:', webglErr);
         onProgress?.('Switching to WASM engine...');
         this.session = await ort.InferenceSession.create(modelSource, {
           executionProviders: ['wasm'],
@@ -95,7 +85,7 @@ export class YoloDetector {
       }
 
       this.isLoaded = true;
-      onProgress?.('YOLO11n AI engine ready');
+      onProgress?.('YOLO11n Ready');
       return true;
     } catch (err) {
       console.error('[YoloDetector] Failed to load YOLO11n model:', err);
@@ -104,27 +94,23 @@ export class YoloDetector {
     }
   }
 
-  public getEngineMode(): 'webgl' | 'wasm' | 'cpu' {
+  getEngineMode() {
     return this.engineMode;
   }
 
-  public isModelReady(): boolean {
+  isModelReady() {
     return this.isLoaded && this.session !== null;
   }
 
-  public isBusy(): boolean {
+  isBusy() {
     return this.isInferencing;
   }
 
   /**
    * Run real-time YOLO11n inference on a video frame.
-   * Fully safeguarded against GPU lockup, texture exhaustion, and stalls.
+   * Fully safeguarded against memory leaks, hangs, and GPU stalls.
    */
-  public async detect(
-    video: HTMLVideoElement,
-    confidenceThreshold: number = 0.45,
-    iouThreshold: number = 0.45
-  ): Promise<RawDetection[]> {
+  async detect(video, confidenceThreshold = 0.45, iouThreshold = 0.45) {
     if (!this.session || !this.isLoaded || this.isInferencing) {
       return [];
     }
@@ -134,8 +120,8 @@ export class YoloDetector {
     }
 
     this.isInferencing = true;
-    let inputTensor: ort.Tensor | null = null;
-    let outputTensor: ort.Tensor | null = null;
+    let inputTensor = null;
+    let outputTensor = null;
 
     try {
       // 1. Draw video frame into 640x640 offscreen canvas
@@ -169,22 +155,20 @@ export class YoloDetector {
       // 3. Create input tensor and run inference with 1.5s timeout safeguard
       inputTensor = new ort.Tensor('float32', tensorBuffer, [1, 3, this.inputHeight, this.inputWidth]);
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Inference timeout')), 1500)
       );
 
-      let results: ort.InferenceSession.OnnxValueMapType;
+      let results;
       try {
         results = await Promise.race([
           this.session.run({ images: inputTensor }),
           timeoutPromise,
         ]);
       } catch (runErr) {
-        console.warn('[YoloDetector] Session run failed or timed out:', runErr);
+        console.warn('[YoloDetector] Inference run failed/timed out, auto-healing:', runErr);
 
-        // Auto-heal: If WebGL failed on mobile, switch to stable WASM engine
         if (this.engineMode === 'webgl' && this.cachedModelBuffer) {
-          console.warn('[YoloDetector] Auto-healing: switching from WebGL to WASM engine...');
           try {
             this.session = await ort.InferenceSession.create(this.cachedModelBuffer, {
               executionProviders: ['wasm'],
@@ -192,7 +176,7 @@ export class YoloDetector {
             });
             this.engineMode = 'wasm';
           } catch (recreateErr) {
-            console.error('[YoloDetector] Failed to switch to WASM engine:', recreateErr);
+            console.error('[YoloDetector] Auto-healing WASM switch failed:', recreateErr);
           }
         }
         return [];
@@ -204,11 +188,11 @@ export class YoloDetector {
         return [];
       }
 
-      const outputData = outputTensor.data as Float32Array;
+      const outputData = outputTensor.data;
       const numAnchors = 8400;
 
-      // 5. Fast contiguous sequential scan (5x faster than strided lookups)
-      const candidateDetections: RawDetection[] = [];
+      // 5. Blazing-fast sequential contiguous row scan
+      const candidateDetections = [];
 
       for (let classId = 0; classId < 80; classId++) {
         const rowOffset = (4 + classId) * numAnchors;
@@ -246,29 +230,29 @@ export class YoloDetector {
         }
       }
 
-      // Cap candidate boxes to top 60 before NMS to avoid sorting overhead
+      // Limit candidates before NMS to maintain 60 FPS
       if (candidateDetections.length > 60) {
         candidateDetections.sort((a, b) => b.confidence - a.confidence);
         candidateDetections.length = 60;
       }
 
-      // 6. Apply class-aware Non-Maximum Suppression (NMS)
+      // 6. Apply Non-Maximum Suppression (NMS)
       const filteredDetections = this.applyNMS(candidateDetections, iouThreshold);
       return filteredDetections;
     } catch (err) {
-      console.error('[YoloDetector] Error during detection inference:', err);
+      console.error('[YoloDetector] Error during detection:', err);
       return [];
     } finally {
-      // Clean up GPU textures / tensor allocations
+      // Free GPU textures
       try {
-        if (inputTensor && typeof (inputTensor as any).dispose === 'function') {
-          (inputTensor as any).dispose();
+        if (inputTensor && typeof inputTensor.dispose === 'function') {
+          inputTensor.dispose();
         }
-        if (outputTensor && typeof (outputTensor as any).dispose === 'function') {
-          (outputTensor as any).dispose();
+        if (outputTensor && typeof outputTensor.dispose === 'function') {
+          outputTensor.dispose();
         }
       } catch {
-        // ignore dispose errors
+        // ignore
       }
       this.isInferencing = false;
     }
@@ -277,12 +261,12 @@ export class YoloDetector {
   /**
    * Apply class-aware Non-Maximum Suppression (NMS)
    */
-  private applyNMS(detections: RawDetection[], iouThreshold: number): RawDetection[] {
+  applyNMS(detections, iouThreshold) {
     if (detections.length <= 1) return detections;
 
     detections.sort((a, b) => b.confidence - a.confidence);
 
-    const selected: RawDetection[] = [];
+    const selected = [];
     const suppressed = new Uint8Array(detections.length);
 
     for (let i = 0; i < detections.length; i++) {
@@ -310,7 +294,7 @@ export class YoloDetector {
   /**
    * Intersection over Union (IoU) between two bounding boxes
    */
-  private calculateIoU(box1: BoundingBox, box2: BoundingBox): number {
+  calculateIoU(box1, box2) {
     const x1 = Math.max(box1.x, box2.x);
     const y1 = Math.max(box1.y, box2.y);
     const x2 = Math.min(box1.x + box1.width, box2.x + box2.width);
@@ -326,7 +310,7 @@ export class YoloDetector {
     return unionArea > 0 ? intersectionArea / unionArea : 0;
   }
 
-  public dispose(): void {
+  dispose() {
     if (this.session) {
       this.session = null;
       this.isLoaded = false;
@@ -334,5 +318,4 @@ export class YoloDetector {
   }
 }
 
-// Singleton instance
 export const yoloDetector = new YoloDetector();
