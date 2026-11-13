@@ -39,21 +39,53 @@ export class YoloDetector {
     try {
       onProgress?.('Configuring ONNX Runtime engine...');
 
-      // Configure WASM asset path relative to base URL
+      // Configure WASM asset path relative to current document location
+      const currentDir = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
       const basePath = import.meta.env.BASE_URL || './';
       const onnxWasmPath = basePath.endsWith('/') ? `${basePath}onnx/` : `${basePath}/onnx/`;
-      ort.env.wasm.wasmPaths = onnxWasmPath;
-      ort.env.wasm.numThreads = 1; // Safe for WebViews without COOP/COEP SharedArrayBuffer
 
-      const modelUrl = basePath.endsWith('/')
-        ? `${basePath}models/yolo11n.onnx`
-        : `${basePath}/models/yolo11n.onnx`;
+      // Set WASM paths with absolute fallback for WebViews
+      try {
+        ort.env.wasm.wasmPaths = new URL('onnx/', currentDir).href;
+      } catch {
+        ort.env.wasm.wasmPaths = onnxWasmPath;
+      }
+      ort.env.wasm.numThreads = 1; // Safe for WebViews without COOP/COEP SharedArrayBuffer
 
       onProgress?.('Loading YOLO11n neural weights...');
 
+      // Candidate model URLs for local dev, vite preview, and Android WebView asset loader
+      const candidateUrls = [
+        new URL('models/yolo11n.onnx', currentDir).href,
+        `${basePath}models/yolo11n.onnx`,
+        './models/yolo11n.onnx',
+        'models/yolo11n.onnx',
+      ];
+
+      let modelSource: ArrayBuffer | string = candidateUrls[0];
+
+      // Try fetching as ArrayBuffer first to verify file integrity and support direct byte loading
+      for (const url of candidateUrls) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const buf = await res.arrayBuffer();
+            if (buf.byteLength > 5000000) {
+              modelSource = buf;
+              console.log(`[YoloDetector] Loaded ${buf.byteLength} bytes from ${url}`);
+              break;
+            }
+          }
+        } catch (fetchErr) {
+          console.warn(`[YoloDetector] Candidate URL ${url} not reachable via fetch, trying next...`);
+        }
+      }
+
+      onProgress?.('Initializing Neural Network Acceleration...');
+
       // Try WebGL first for GPU hardware acceleration (e.g. Mali-G52 GPU on Samsung A06)
       try {
-        this.session = await ort.InferenceSession.create(modelUrl, {
+        this.session = await ort.InferenceSession.create(modelSource, {
           executionProviders: ['webgl'],
           graphOptimizationLevel: 'all',
         });
@@ -62,7 +94,7 @@ export class YoloDetector {
       } catch (webglErr) {
         console.warn('[YoloDetector] WebGL initialization failed, falling back to WASM:', webglErr);
         onProgress?.('WebGL unavailable, switching to WASM engine...');
-        this.session = await ort.InferenceSession.create(modelUrl, {
+        this.session = await ort.InferenceSession.create(modelSource, {
           executionProviders: ['wasm'],
           graphOptimizationLevel: 'all',
         });

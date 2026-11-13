@@ -126,16 +126,21 @@ class MainActivity : ComponentActivity() {
                     request: WebResourceRequest
                 ): WebResourceResponse? {
                     val response = assetLoader.shouldInterceptRequest(request.url) ?: return null
-                    val path = request.url.path ?: ""
+                    val path = request.url.path?.lowercase() ?: ""
                     if (path.endsWith(".wasm")) {
                         response.mimeType = "application/wasm"
-                    } else if (path.endsWith(".js")) {
+                    } else if (path.endsWith(".js") || path.endsWith(".mjs")) {
                         response.mimeType = "application/javascript"
                     } else if (path.endsWith(".css")) {
                         response.mimeType = "text/css"
-                    } else if (path.endsWith(".binarypb") || path.endsWith(".data")) {
+                    } else if (path.endsWith(".onnx") || path.endsWith(".binarypb") || path.endsWith(".data") || path.endsWith(".bin")) {
                         response.mimeType = "application/octet-stream"
                     }
+                    val headers = HashMap<String, String>(response.responseHeaders ?: emptyMap())
+                    headers["Access-Control-Allow-Origin"] = "*"
+                    headers["Cross-Origin-Opener-Policy"] = "same-origin"
+                    headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+                    response.responseHeaders = headers
                     return response
                 }
 
@@ -146,16 +151,21 @@ class MainActivity : ComponentActivity() {
                 ): WebResourceResponse? {
                     val uri = Uri.parse(url)
                     val response = assetLoader.shouldInterceptRequest(uri) ?: return null
-                    val path = uri.path ?: ""
+                    val path = uri.path?.lowercase() ?: ""
                     if (path.endsWith(".wasm")) {
                         response.mimeType = "application/wasm"
-                    } else if (path.endsWith(".js")) {
+                    } else if (path.endsWith(".js") || path.endsWith(".mjs")) {
                         response.mimeType = "application/javascript"
                     } else if (path.endsWith(".css")) {
                         response.mimeType = "text/css"
-                    } else if (path.endsWith(".binarypb") || path.endsWith(".data")) {
+                    } else if (path.endsWith(".onnx") || path.endsWith(".binarypb") || path.endsWith(".data") || path.endsWith(".bin")) {
                         response.mimeType = "application/octet-stream"
                     }
+                    val headers = HashMap<String, String>(response.responseHeaders ?: emptyMap())
+                    headers["Access-Control-Allow-Origin"] = "*"
+                    headers["Cross-Origin-Opener-Policy"] = "same-origin"
+                    headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+                    response.responseHeaders = headers
                     return response
                 }
             }
