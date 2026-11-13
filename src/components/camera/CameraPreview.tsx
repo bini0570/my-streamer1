@@ -243,21 +243,21 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
     onUpdateSettings({ isDetectionPaused: !settings.isDetectionPaused });
   };
 
-  // Main High-Performance Animation & Decoupled Inference Loop
+  // 1. Synchronous 60 FPS Render Loop (Never awaits anything - camera & overlay never freeze)
   useEffect(() => {
     let isCancelled = false;
 
-    const processLoop = async () => {
+    const renderLoop = () => {
       if (isCancelled) return;
 
       const now = performance.now();
-      const dt = (now - lastFrameTimeRef.current) / 1000;
+      const dt = Math.max(0.001, (now - lastFrameTimeRef.current) / 1000);
       lastFrameTimeRef.current = now;
 
-      // Calculate instantaneous rendering FPS (sliding window of 15 frames)
-      const currentFps = dt > 0 ? 1 / dt : 30;
+      // Sliding window display FPS
+      const currentFps = 1 / dt;
       fpsWindowRef.current.push(currentFps);
-      if (fpsWindowRef.current.length > 15) {
+      if (fpsWindowRef.current.length > 20) {
         fpsWindowRef.current.shift();
       }
       const avgFps = Math.round(
@@ -267,11 +267,36 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
       const cWidth = dimensions.width || 640;
       const cHeight = dimensions.height || 480;
 
-      // 1. Advance ByteTrack positions smoothly between AI frames using velocity prediction
-      const currentTracks = byteTracker.advanceFrame(dt, cWidth, cHeight);
-      setTrackedObjects(currentTracks);
+      // Smoothly glide bounding boxes and motion trails using ByteTrack velocity prediction
+      const activeTracks = byteTracker.advanceFrame(dt, cWidth, cHeight);
+      setTrackedObjects(activeTracks);
 
-      // 2. Decoupled AI Object Detection
+      setMetrics((prev) => ({
+        ...prev,
+        fps: avgFps,
+      }));
+
+      animFrameIdRef.current = requestAnimationFrame(renderLoop);
+    };
+
+    animFrameIdRef.current = requestAnimationFrame(renderLoop);
+
+    return () => {
+      isCancelled = true;
+      if (animFrameIdRef.current) {
+        cancelAnimationFrame(animFrameIdRef.current);
+      }
+    };
+  }, [dimensions]);
+
+  // 2. Asynchronous Background Inference Loop (Runs completely independently)
+  useEffect(() => {
+    let isCancelled = false;
+    let timerId: number | null = null;
+
+    const runInferenceCycle = async () => {
+      if (isCancelled) return;
+
       if (
         isModelReady &&
         !settings.isDetectionPaused &&
@@ -283,6 +308,9 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
         const inferenceStart = performance.now();
 
         try {
+          const cWidth = dimensions.width || 640;
+          const cHeight = dimensions.height || 480;
+
           const rawDetections = await yoloDetector.detect(
             videoRef.current,
             settings.confidenceThreshold || 0.45,
@@ -305,38 +333,36 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
           const movingCount = updatedTracks.filter((t) => t.isMoving).length;
           const stationaryCount = updatedTracks.length - movingCount;
 
-          setMetrics({
-            fps: avgFps,
+          setMetrics((prev) => ({
+            ...prev,
             inferenceMs: inferenceElapsed,
             totalDetected: updatedTracks.length,
             movingCount,
             stationaryCount,
             modelLoaded: true,
             engineMode: yoloDetector.getEngineMode(),
-          });
+          }));
         } catch (err) {
           console.error('[DetectionLoop] Error during inference cycle:', err);
         } finally {
           isInferencingRef.current = false;
         }
-      } else {
-        // Just update FPS metric during animation frame
-        setMetrics((prev) => ({
-          ...prev,
-          fps: avgFps,
-        }));
       }
 
-      animFrameIdRef.current = requestAnimationFrame(processLoop);
+      if (!isCancelled) {
+        // Schedule next inference with a 40ms interval (targeting ~15 FPS neural inference)
+        timerId = window.setTimeout(runInferenceCycle, 40);
+      }
     };
 
-    animFrameIdRef.current = requestAnimationFrame(processLoop);
+    timerId = window.setTimeout(runInferenceCycle, 200);
 
     return () => {
       isCancelled = true;
-      if (animFrameIdRef.current) {
-        cancelAnimationFrame(animFrameIdRef.current);
+      if (timerId !== null) {
+        clearTimeout(timerId);
       }
+      isInferencingRef.current = false;
     };
   }, [isModelReady, settings.isDetectionPaused, settings.confidenceThreshold, facingMode, dimensions]);
 
